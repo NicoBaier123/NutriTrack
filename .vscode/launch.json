@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run NutriTrack Backend",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app.main:app",
+        "--reload",
+        "--host", "127.0.0.1",
+        "--port", "8000"
+      ],
+      "cwd": "${workspaceFolder}/backend",
+      "console": "integratedTerminal",
+      "jinja": false,
+
+      // Öffnet automatisch http://127.0.0.1:8000/docs,
+      // sobald Uvicorn "running on http://127.0.0.1:8000" geloggt hat
+      "serverReadyAction": {
+        "pattern": "Uvicorn running on (http://127\\.0\\.0\\.1:8000)",
+        "uriFormat": "%s/docs",
+        "action": "openExternally"
+      }
+    }
+  ]
+}

@@ -1,6 +1,180 @@
 name,kcal,protein_g,carbs_g,fat_g
-Haferflocken,372,13.5,59.5,7.0
-Magerquark,68,12.5,4.0,0.3
-Banane,89,1.1,23.0,0.3
-Ei (ganz),155,13.0,1.1,11.0
-Huhn,165,31.0,0.0,3.6
+Magerquark,68,12.5,4.0,0.2
+Skyr,62,11.0,4.0,0.2
+Quark 20 %,120,11.0,3.5,6.5
+Naturjoghurt 3.5 %,63,3.4,4.7,3.5
+Naturjoghurt 1.5 %,47,4.2,4.6,1.5
+H-Milch 1.5 %,46,3.4,4.9,1.5
+H-Milch 3.5 %,64,3.3,4.8,3.6
+Sojadrink,45,3.3,2.1,2.2
+Haferdrink,48,1.0,6.6,1.4
+Mandelmilch ungesüßt,24,0.6,0.3,2.1
+Kuhmilch laktosefrei 1.5 %,46,3.4,4.8,1.5
+Käse Gouda 45 %,356,25,0,27
+Käse Emmentaler,380,29,0,30
+Käse Mozzarella,254,18,2,19
+Mozzarella light,160,22,1,8
+Frischkäse natur,240,7,3,23
+Frischkäse light,160,11,3,9
+Hüttenkäse,97,13,3,4
+Schmelzkäse,280,10,4,25
+Butter,742,0.6,0.8,82
+Margarine,720,0,0,80
+Olivenöl,884,0,0,100
+Rapsöl,884,0,0,100
+Sonnenblumenöl,884,0,0,100
+Kokosöl,862,0,0,100
+Hähnchenbrust,165,31,0,3.6
+Putenbrust,150,29,0,2.5
+Rinderhack mager,200,20,0,14
+Rinderfilet,175,26,0,7
+Schweinefilet,142,22,0,5
+Hackfleisch gemischt,250,19,0,20
+Schinken gekocht,110,20,1,3
+Salami,400,22,0,35
+Bratwurst,290,14,0,26
+Leberwurst,305,14,0,28
+Bockwurst,280,12,1,25
+Rührei,150,12,1,11
+Spiegelei,160,13,1,12
+Eiklar,48,11,0.4,0.2
+Ganzes Ei,143,12.5,1.1,10.3
+Lachs,206,20,0,13
+Seelachs,112,23,0,1
+Thunfisch (Dose, abgetr.),116,26,0,0.8
+Makrele,262,20,0,21
+Hering,217,18,0,16
+Garnelen,85,18,0,1
+Kabeljau,82,18,0,0.7
+Forelle,140,20,0,6
+Sardinen (in Öl, abgetr.),210,25,0,12
+Reis (roh),358,7.2,78.6,0.6
+Reis (gekocht),130,2.5,28,0.3
+Vollkornreis (roh),360,7.5,76,2.7
+Vollkornbrot,215,8.0,39,2.5
+Weißbrot,260,8,49,3
+Haferflocken,372,13.5,58.7,7
+Hirse (roh),360,11,68,3.9
+Dinkelmehl 630,341,12,70,1.3
+Weizenmehl 405,340,10,72,1
+Nudeln (roh),360,13,71,2
+Nudeln (gekocht),140,4.5,26,1
+Vollkornnudeln (roh),350,13,65,2.5
+Kartoffeln (roh),69,2,15,0.1
+Kartoffeln (gekocht),86,2,19,0.1
+Süßkartoffeln (gekocht),90,1.5,20,0.2
+Brötchen,270,9,51,3
+Croissant,420,8,45,22
+Linsen (gekocht),116,9,20,0.4
+Kichererbsen (gekocht),164,9,27,2.6
+Bohnen (Dose, abgetr.),110,7,15,0.5
+Kidneybohnen (gekocht),127,9,20,0.5
+Erbsen (gekocht),84,6,14,0.4
+Sojabohnen (gekocht),173,16.6,9.9,8.9
+Tofu natur,76,8,1.6,4
+Tempeh,192,19,7,10
+Seitan,118,25,3,1.5
+Mandeln,575,21,9,49
+Walnüsse,654,15,14,65
+Haselnüsse,628,15,17,61
+Cashewkerne,553,18,27,44
+Erdnüsse,567,26,16,49
+Chiasamen,486,17,4,31
+Leinsamen,534,19,2,42
+Kürbiskerne,574,30,10,49
+Sonnenblumenkerne,580,21,20,51
+Erdnussmus,640,26,11,53
+Tahini,595,18,12,53
+Apfel,52,0.3,14,0.2
+Banane,89,1.1,23,0.3
+Birne,57,0.4,15,0.2
+Trauben,69,0.7,18,0.2
+Orange,47,0.9,12,0.1
+Mandarine,53,0.8,13,0.3
+Kiwi,61,1.1,15,0.5
+Ananas,50,0.5,13,0.1
+Mango,60,0.8,15,0.4
+Beeren (TK),50,1,12,0.3
+Erdbeeren,33,0.8,8,0.3
+Blaubeeren,57,0.7,14,0.3
+Himbeeren,52,1.2,12,0.7
+Wassermelone,30,0.6,8,0.2
+Tomaten,18,0.9,3.9,0.2
+Gurke,12,0.6,2,0.1
+Paprika,31,1,6,0.3
+Karotten,41,1,10,0.2
+Zucchini,21,1.6,3,0.3
+Spinat (TK),23,3,1,0.3
+Brokkoli (gekocht),34,3.5,5,0.4
+Blumenkohl (gekocht),30,2.4,5,0.3
+Erbsen (TK),76,5,11,0.5
+Mais (gekocht),96,3.4,21,1.5
+Champignons,22,3.1,3.3,0.3
+Zwiebeln,40,1.1,9,0.1
+Knoblauch,149,6.4,33,0.5
+Salat,14,1.4,2.9,0.2
+Avocado,160,2,2,15
+Oliven,145,1,3.8,15
+Hummus,267,8,14,21
+Pesto grün,460,5,6,45
+Tomatensauce,70,1.5,10,2
+Ketchup,112,1.3,25,0.1
+Mayonnaise,680,1,2,75
+Senf,70,4,6,3
+Fruchtaufstrich,240,0.4,60,0.1
+Honig,304,0.3,82,0
+Zartbitterschokolade 70 %,579,7,46,41
+Vollmilchschokolade,535,6.5,59,31
+Gummibärchen,340,7,77,0.2
+Keks Butter,480,6,64,21
+Reiswaffeln,387,8,81,3
+Müsli (Basis),370,10,65,6
+Cornflakes,370,7,84,1
+Knäckebrot,340,9,68,2
+Maultaschen (gekocht),210,10,25,7
+Gnocchi (gekocht),145,3,30,1
+Pizza Margherita (gekocht),240,10,28,9
+Pommes (gebacken),312,4,41,15
+Nuggets (gebacken),270,14,20,14
+Fischstäbchen (gebacken),230,12,18,11
+Suppengemüse (TK),35,2,6,0.2
+Gemüsemischung (gekocht),45,2,8,0.3
+Orangensaft,45,0.7,10,0.2
+Apfelsaft,46,0.2,11,0.1
+Cola zuckerhaltig,42,0,10.6,0
+Cola zero,1,0,0,0
+Mineralwasser,0,0,0,0
+Kaffee schwarz,2,0.3,0,0
+Tee (ungesüßt),1,0,0,0
+Bier,43,0.5,3.6,0
+Wein rot,85,0,2.6,0
+Sekt,80,0.3,3,0
+Proteinshake (Milchbasis),380,60,10,5
+Energydrink,45,0,11,0
+Kakaogetränk (Milch),80,3.3,11,2.5
+Smoothie Frucht,60,0.5,14,0.3
+Gemüsesaft,25,0.8,4,0.2
+Eistee gezuckert,28,0,7,0
+Eistee zero,1,0,0,0
+Sojajoghurt natur,60,4,2,3
+Kokosjoghurt,110,1,6,9
+Pflanzenmargarine,720,0,0,80
+Eiweißbrot,260,25,8,10
+Haferkleie,350,18,55,7
+Quinoa (gekocht),120,4,21,2
+Bulgur (gekocht),110,3,23,0.2
+Couscous (gekocht),112,3.8,23,0.2
+Hirse (gekocht),118,3.5,23,1
+Polenta (gekocht),100,2,22,0.3
+Reisnudeln (gekocht),150,2,33,0.4
+Toastscheibe,260,8,49,3
+Bagel,270,9,52,2
+Wrap Weizen,300,9,50,7
+Tortilla Mais,280,7,55,5
+Paniermehl,360,12,70,3
+Grieß (Hartweizen),340,11,71,1
+Haferbrei (gekocht),90,3,15,2
+Müsli Schoko,430,9,67,12
+Granola,470,10,60,20
+Cracker salzig,430,8,70,13
+Erdnussflips,520,12,48,32

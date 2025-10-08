@@ -1,0 +1,23 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Test /advisor/chat (protein <1000 kcal)",
+      "type": "shell",
+      "presentation": { "reveal": "always", "panel": "shared" },
+
+      // Windows: PowerShell 7 (pwsh)
+      "windows": {
+        "command": "pwsh -NoProfile -Command \"Invoke-RestMethod -Uri 'http://127.0.0.1:8000/advisor/chat' -Method Post -ContentType 'application/json' -Body '{\"\"message\"\":\"\"Gib mir eine proteinreiche Mahlzeit unter 1000 kcal.\"\"}' | Format-List *\""
+      },
+
+      // macOS / Linux: echtes curl
+      "linux": {
+        "command": "curl -sS -X POST http://127.0.0.1:8000/advisor/chat -H 'Content-Type: application/json' -d '{\"message\":\"Gib mir eine proteinreiche Mahlzeit unter 1000 kcal.\"}'"
+      },
+      "osx": {
+        "command": "curl -sS -X POST http://127.0.0.1:8000/advisor/chat -H 'Content-Type: application/json' -d '{\"message\":\"Gib mir eine proteinreiche Mahlzeit unter 1000 kcal.\"}'"
+      }
+    }
+  ]
+}

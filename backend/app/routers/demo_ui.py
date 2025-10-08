@@ -1,0 +1,307 @@
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse
+
+router = APIRouter(tags=["demo"])
+
+HTML = """
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>NutriTrack Demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#0b0f14; --panel:#0f172a; --muted:#9ca3af; --text:#e5e7eb; --line:#1f2937; --accent:#2563eb; --accent-2:#10b981; --danger:#ef4444;}
+  * { box-sizing: border-box; }
+  body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji"; margin: 20px; background:var(--bg); color:var(--text);}
+  .wrap { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 18px 0 10px; }
+  .row { display:flex; gap:8px; }
+  textarea, input, select { background:#111827; color:var(--text); border:1px solid #374151; border-radius:10px; padding:12px; }
+  textarea { flex:1; min-height:110px; }
+  button { background:var(--accent); color:white; border:none; border-radius:10px; padding:12px 16px; cursor:pointer; }
+  button.secondary { background:#334155; }
+  button.success { background:var(--accent-2); }
+  button:disabled { opacity:.6; cursor:default; }
+  .out { white-space:pre-wrap; background:var(--panel); border:1px solid var(--line); padding:12px; border-radius:10px; margin-top:12px; }
+  .hint { font-size:12px; color:var(--muted); margin:6px 0 10px; }
+  .bar { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 14px; }
+  input[type="number"]{ width:140px; }
+  select[multiple]{ min-width:220px; min-height:44px; }
+  .columns { display:grid; grid-template-columns: 1fr 1fr; gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .card h3 { margin:0 0 8px; font-size:16px; }
+  .kv { color:var(--muted); font-size:12px; margin-bottom:8px; }
+  .ing { margin: 6px 0; }
+  .tags { margin-top:8px; display:flex; flex-wrap:wrap; gap:6px; }
+  .tag { font-size:11px; padding:3px 7px; border-radius:999px; background:#1f2937; border:1px solid #374151; color:#cbd5e1; }
+  .actions { margin-top:10px; display:flex; gap:8px; }
+  .toast { position: fixed; right:16px; bottom:16px; background:#111827; color:var(--text); border:1px solid var(--line); border-radius:10px; padding:10px 12px; box-shadow: 0 10px 30px rgba(0,0,0,.35); }
+  .err { color:#fecaca; }
+  code { color:#93c5fd; }
+  @media (max-width: 860px) { .columns { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>NutriTrack – KI-Compose Demo</h1>
+
+  <div class="bar">
+    <input id="bw" type="number" step="0.1" placeholder="Körpergewicht kg (optional)">
+    <input id="day" type="date" title="Datum (für Meals & Rest-Kalorien)">
+    <select id="prefs" multiple title="Präferenzen (Mehrfachauswahl)">
+      <option value="vegetarian">vegetarian</option>
+      <option value="vegan">vegan</option>
+      <option value="no_pork">no_pork</option>
+      <option value="lactose_free">lactose_free</option>
+      <option value="budget">budget</option>
+      <option value="german">german</option>
+      <option value="italian">italian</option>
+      <option value="asian">asian</option>
+    </select>
+  </div>
+
+  <div class="row">
+    <textarea id="msg" placeholder="z.B. 'proteinreiches Abendessen, unter 800 kcal, in 20 Minuten, vegetarisch'"></textarea>
+    <div style="display:flex; flex-direction:column; gap:8px;">
+      <button id="go">Vorschläge</button>
+      <button id="clear" class="secondary">Leeren</button>
+    </div>
+  </div>
+  <div class="hint">
+    Tipp: Lass <code>day</code> leer, wenn du keine Rest-Makros berücksichtigen willst. <br>
+    Nutze den Button <em>In Meals übernehmen</em>, um Zutaten einer Idee als Items für den gewählten Tag zu posten.
+  </div>
+
+  <div class="columns">
+    <div>
+      <div class="card">
+        <h3>Gerenderte Vorschläge</h3>
+        <div id="cards">Noch keine Vorschläge.</div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <h3>Rohantwort (JSON / Fehler)</h3>
+        <div id="out" class="out">Antwort erscheint hier…</div>
+      </div>
+
+      <div class="card" style="margin-top:12px;">
+        <h3>Tages-Log (Meals für Datum)</h3>
+        <div id="meals" class="out">Datum wählen, um Einträge zu sehen…</div>
+        <div class="hint">Wird nach „In Meals übernehmen“ automatisch aktualisiert.</div>
+      </div>
+    </div>
+  </div>
+
+  <h1 style="margin-top:28px;">Freier Chat (Advisor /chat)</h1>
+  <div class="row">
+    <textarea id="chat" placeholder="Frage an den Ernährungs-Coach…"></textarea>
+    <button id="ask">Senden</button>
+  </div>
+  <div id="chatout" class="out">Antwort erscheint hier…</div>
+</div>
+
+<div id="toast" class="toast" style="display:none;"></div>
+
+<script>
+const $ = (id)=>document.getElementById(id);
+const fmt = (n)=> typeof n === "number" && isFinite(n) ? n.toLocaleString("de-DE") : n;
+
+function prefsArray(){ return Array.from($("prefs").selectedOptions).map(o=>o.value); }
+function showToast(msg, ok=true){
+  const t = $("toast");
+  t.textContent = msg;
+  t.style.display = "block";
+  t.style.borderColor = ok ? "var(--accent-2)" : "var(--danger)";
+  setTimeout(()=> t.style.display="none", 2500);
+}
+
+function renderIdeas(data){
+  const el = $("cards");
+  if(!data || !Array.isArray(data?.ideas) || data.ideas.length === 0){
+    el.textContent = "Keine Ideen erhalten.";
+    return;
+  }
+  const day = $("day").value || "";
+  el.innerHTML = "";
+  data.ideas.forEach((idea, idx)=>{
+    const macros = idea.macros || {};
+    const tags = Array.isArray(idea.tags) ? idea.tags : [];
+    const lines = [];
+    (idea.ingredients || []).forEach(it=>{
+      lines.push(`<div class="ing">• <b>${it.name}</b> — ${fmt(it.grams)} g</div>`);
+    });
+    const btnMeals = day ? `<button class="success" data-idx="${idx}">In Meals übernehmen</button>` :
+                           `<button class="success" disabled title="Bitte oben ein Datum wählen">In Meals übernehmen</button>`;
+    const html = `
+      <div class="card">
+        <h3>${idea.title || "Vorschlag"}</h3>
+        <div class="kv">
+          ${idea.time_minutes ? `${fmt(idea.time_minutes)} Min · ` : ""}${idea.difficulty || "easy"}
+          ${macros.kcal!=null ? ` · ~${fmt(macros.kcal)} kcal` : ""}
+          ${macros.protein_g!=null ? ` · P ${fmt(macros.protein_g)} g` : ""}
+          ${macros.carbs_g!=null ? ` · C ${fmt(macros.carbs_g)} g` : ""}
+          ${macros.fat_g!=null ? ` · F ${fmt(macros.fat_g)} g` : ""}
+        </div>
+        <div>${lines.join("") || "<i>Keine Zutaten erhalten.</i>"}</div>
+        ${Array.isArray(idea.instructions) && idea.instructions.length ? `<div class="hint" style="margin-top:8px;">${idea.instructions.map((s,i)=>`${i+1}. ${s}`).join("<br>")}</div>` : ""}
+        <div class="tags">${tags.map(t=>`<span class="tag">${t}</span>`).join("")}</div>
+        <div class="actions">
+          ${btnMeals}
+          <button class="secondary" data-showraw="${idx}">JSON zeigen</button>
+        </div>
+      </div>
+    `;
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = html;
+    el.appendChild(wrapper.firstElementChild);
+  });
+
+  // Button-Handler
+  el.querySelectorAll("button[data-idx]").forEach(btn=>{
+    btn.onclick = async ()=>{
+      const i = parseInt(btn.getAttribute("data-idx"));
+      await pushIdeaToMeals(data.ideas[i]);
+    };
+  });
+  el.querySelectorAll("button[data-showraw]").forEach(btn=>{
+    btn.onclick = ()=>{
+      const i = parseInt(btn.getAttribute("data-showraw"));
+      $("out").textContent = JSON.stringify(data.ideas[i], null, 2);
+    };
+  });
+}
+
+// ---- NEU: Meals-Log laden & anzeigen ----
+async function fetchMeals() {
+  const day = $("day").value;
+  const box = $("meals");
+  if (!day) { box.textContent = "Datum wählen, um Einträge zu sehen…"; return; }
+  box.textContent = "Lade Meals…";
+  try {
+    const res = await fetch(`/meals/day?day=${encodeURIComponent(day)}`);
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); } catch { box.textContent = text; return; }
+    renderMeals(data);
+  } catch (e) {
+    box.textContent = "Fehler beim Laden: " + e;
+  }
+}
+
+function renderMeals(data) {
+  const box = $("meals");
+  if (!data || !Array.isArray(data.items) || !data.items.length) {
+    box.textContent = "Keine Einträge für dieses Datum.";
+    return;
+  }
+  const lines = data.items.map(it => `• ${it.food_name || it.food || "?"} — ${it.grams} g`).join("\\n");
+  box.textContent = lines;
+}
+
+async function pushIdeaToMeals(idea){
+  const day = $("day").value;
+  if(!day){ showToast("Bitte oben ein Datum wählen.", false); return; }
+  const items = idea?.ingredients || [];
+  if(!items.length){ showToast("Keine Zutaten vorhanden.", false); return; }
+  let okCount = 0, failCount = 0;
+  for(const it of items){
+    const params = new URLSearchParams({ day, food_name: it.name, grams: String(it.grams||0) });
+    try{
+      const res = await fetch(`/meals/item?${params.toString()}`, { method: "POST" });
+      if(!res.ok){ failCount++; continue; }
+      okCount++;
+    }catch{
+      failCount++;
+    }
+  }
+  if(failCount===0) showToast(`✓ ${okCount} Zutaten hinzugefügt.`);
+  else showToast(`✓ ${okCount} hinzugefügt, ✗ ${failCount} fehlgeschlagen.`, failCount===0);
+
+  // Nach dem Speichern den Tages-Log aktualisieren
+  await fetchMeals();
+}
+
+$("clear").onclick = ()=>{
+  $("msg").value = "";
+  $("out").textContent = "Antwort erscheint hier…";
+  $("cards").textContent = "Noch keine Vorschläge.";
+};
+
+$("go").onclick = async () => {
+  const btn = $("go");
+  const out = $("out");
+  const cards = $("cards");
+  btn.disabled = true;
+  out.textContent = "Denke nach…";
+  try {
+    const body = {
+      message: $("msg").value || "",
+      body_weight_kg: $("bw").value ? parseFloat($("bw").value) : null,
+      day: $("day").value || null,
+      servings: 1,
+      preferences: prefsArray()
+    };
+    const res = await fetch("/advisor/compose", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(body)
+    });
+
+    const text = await res.text();      // erst Text holen
+    let data;
+    try {
+      data = JSON.parse(text);          // dann JSON versuchen
+    } catch {
+      out.innerHTML = `HTTP ${res.status}<br><span class="err">${text.replace(/</g,"&lt;")}</span>`;
+      cards.textContent = "Fehler – siehe Rohantwort rechts.";
+      return;
+    }
+    out.textContent = JSON.stringify(data, null, 2);
+    renderIdeas(data);
+  } catch(e){
+    out.textContent = "Fehler (Client): " + e;
+    $("cards").textContent = "Fehler – siehe Rohantwort rechts.";
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+$("ask").onclick = async ()=>{
+  const btn = $("ask");
+  const out = $("chatout");
+  btn.disabled = true;
+  out.textContent = "Denke nach…";
+  try{
+    const res = await fetch("/advisor/chat", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ message: $("chat").value })
+    });
+    const text = await res.text();
+    try {
+      const data = JSON.parse(text);
+      out.textContent = data.output || JSON.stringify(data,null,2);
+    } catch {
+      out.textContent = text; // falls Backend reinen Text liefert
+    }
+  }catch(e){
+    out.textContent = "Fehler (Client): " + e;
+  }finally{
+    btn.disabled = false;
+  }
+};
+
+// Beim Datumswechsel Meals nachladen + initialer Versuch
+$("day").addEventListener("change", fetchMeals);
+fetchMeals();
+
+</script>
+</body>
+</html>
+"""
+
+@router.get("/demo", response_class=HTMLResponse)
+def demo_page(request: Request):
+    return HTML
