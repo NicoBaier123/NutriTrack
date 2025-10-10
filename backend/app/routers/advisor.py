@@ -181,6 +181,34 @@ def _ollama_generate(prompt: str, model: str = OLLAMA_MODEL, as_json: bool = Fal
     data = json.loads(res.read())
     return data.get("response", "")
 
+
+def _post_meal_ingest(items, day_str, input_text):
+    """
+    items: List[{"name": str, "grams": float}]  # was dein Parser/LLM liefert
+    day_str: "YYYY-MM-DD"
+    input_text: der Original-Chattext (zur Nachvollziehbarkeit)
+    """
+    conn = http.client.HTTPConnection("127.0.0.1", 8000, timeout=10)
+    payload = json.dumps({
+        "day": day_str,
+        "source": "chat",
+        "input_text": input_text,
+        "items": [{"food_name": it["name"], "grams": float(it["grams"])} for it in items if it.get("name") and it.get("grams")]
+    })
+    headers = {"Content-Type": "application/json"}
+    conn.request("POST", "/meals/ingest", body=payload, headers=headers)
+    resp = conn.getresponse()
+    data = resp.read().decode("utf-8")
+    try:
+        j = json.loads(data) if data else {}
+    except Exception:
+        j = {"raw": data}
+
+    if resp.status >= 300:
+        # Durchreichen – der Client sieht exakt, warum es nicht geklappt hat
+        raise HTTPException(status_code=resp.status, detail=j if j else data)
+    return j
+
 # ---------- Simple local embedding client (optional) ----------
 def _embed_texts(texts: List[str]) -> Optional[List[List[float]]]:
     """Optionaler Embedding-Call. Wenn RAG_EMBED_URL nicht gesetzt, None zurückgeben."""

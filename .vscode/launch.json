@@ -16,13 +16,46 @@
       "console": "integratedTerminal",
       "jinja": false,
 
-      // Öffnet automatisch http://127.0.0.1:8000/docs,
-      // sobald Uvicorn "running on http://127.0.0.1:8000" geloggt hat
+      // NEU: vor dem Start venv & Pakete sicherstellen
+      "preLaunchTask": "Setup venv & deps",
+
+      // NEU: .env automatisch laden (FDC_API_KEY usw.)
+      "envFile": "${workspaceFolder}/backend/.env",
+
+      // Öffnet automatisch Swagger nach Server-Start
       "serverReadyAction": {
         "pattern": "Uvicorn running on (http://127\\.0\\.0\\.1:8000)",
         "uriFormat": "%s/docs",
         "action": "openExternally"
-      }
+      },
+
+      // optional hilfreich
+      "justMyCode": true
+    },
+
+    // NEU: zweite Config, die /demo öffnet
+    {
+      "name": "Run NutriTrack Backend (open /demo)",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app.main:app",
+        "--reload",
+        "--host", "127.0.0.1",
+        "--port", "8000"
+      ],
+      "cwd": "${workspaceFolder}/backend",
+      "console": "integratedTerminal",
+      "jinja": false,
+      "preLaunchTask": "Setup venv & deps",
+      "envFile": "${workspaceFolder}/backend/.env",
+      "serverReadyAction": {
+        "pattern": "Uvicorn running on (http://127\\.0\\.0\\.1:8000)",
+        "uriFormat": "%s/demo",
+        "action": "openExternally"
+      },
+      "justMyCode": true
     }
   ]
 }

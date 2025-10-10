@@ -173,7 +173,7 @@ function renderIdeas(data){
   });
 }
 
-// ---- NEU: Meals-Log laden & anzeigen ----
+// ---- Meals-Log laden & anzeigen ----
 async function fetchMeals() {
   const day = $("day").value;
   const box = $("meals");
@@ -200,27 +200,86 @@ function renderMeals(data) {
   box.textContent = lines;
 }
 
+// ---- NEU: atomarer Batch-Ingest ----
 async function pushIdeaToMeals(idea){
   const day = $("day").value;
   if(!day){ showToast("Bitte oben ein Datum wählen.", false); return; }
-  const items = idea?.ingredients || [];
-  if(!items.length){ showToast("Keine Zutaten vorhanden.", false); return; }
-  let okCount = 0, failCount = 0;
-  for(const it of items){
-    const params = new URLSearchParams({ day, food_name: it.name, grams: String(it.grams||0) });
-    try{
-      const res = await fetch(`/meals/item?${params.toString()}`, { method: "POST" });
-      if(!res.ok){ failCount++; continue; }
-      okCount++;
-    }catch{
-      failCount++;
-    }
-  }
-  if(failCount===0) showToast(`✓ ${okCount} Zutaten hinzugefügt.`);
-  else showToast(`✓ ${okCount} hinzugefügt, ✗ ${failCount} fehlgeschlagen.`, failCount===0);
 
-  // Nach dem Speichern den Tages-Log aktualisieren
-  await fetchMeals();
+  const items = Array.isArray(idea?.ingredients) ? idea.ingredients : [];
+  if(!items.length){ showToast("Keine Zutaten vorhanden.", false); return; }
+
+  // Payload für atomaren Batch-Ingest
+  const payload = {
+    day,
+    source: "chat",
+    input_text: `DemoUI: ${idea?.title || ""}`,
+    items: items
+      .filter(it => it && typeof it.name === "string" && Number(it.grams) > 0)
+      .map(it => ({ food_name: it.name.trim(), grams: Number(it.grams) }))
+  };
+
+  if(payload.items.length === 0){
+    showToast("Keine gültigen Zutaten (Gramm > 0) gefunden.", false);
+    return;
+  }
+
+  try{
+    const res = await fetch("/meals/ingest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+
+    // Versuche immer JSON zu lesen; bei Fehlern Rohtext anzeigen
+    const text = await res.text();
+    let data = {};
+    try { data = text ? JSON.parse(text) : {}; } catch { /* ignorieren */ }
+
+    if(!res.ok){
+      // 409 = Duplicate ingestion (Idempotenzschutz)
+      if(res.status === 409){
+        showToast("Bereits gespeichert (Duplikat erkannt).", false);
+      } else if (data?.detail){
+        showToast(`Speichern fehlgeschlagen: ${typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)}`, false);
+      } else {
+        showToast(`Speichern fehlgeschlagen (HTTP ${res.status})`, false);
+      }
+      await fetchMeals();
+      return;
+    }
+
+    const added   = Number.isFinite(data?.added) ? data.added : 0;
+    const nf      = Number.isFinite(data?.not_found) ? data.not_found : 0;
+    const skipped = Number.isFinite(data?.skipped) ? data.skipped : 0;
+
+    let msg = `✓ ${added} gespeichert`;
+    if(nf > 0)      msg += `, ${nf} nicht gefunden`;
+    if(skipped > 0) msg += `, ${skipped} aggregiert`;
+    msg += ".";
+
+    showToast(msg, true);
+    await fetchMeals();
+
+    // Optional: bei fehlenden Items schnellen Lookup andeuten (Ergebnis rechts anzeigen)
+    if (Array.isArray(data?.items)) {
+      const missing = data.items.filter(x => x.status === "not_found").map(x => x.food_name);
+      if (missing.length) {
+        const q = missing[0];
+        try {
+          const r = await fetch("/foods/lookup", {
+            method: "POST",
+            headers: {"Content-Type":"application/json"},
+            body: JSON.stringify({ query: q, limit: 5 })
+          });
+          const jr = await r.json();
+          $("out").textContent = "Lookup " + q + ":\n" + JSON.stringify(jr, null, 2);
+        } catch {}
+      }
+    }
+
+  }catch(e){
+    showToast("Netzwerkfehler beim Speichern.", false);
+  }
 }
 
 $("clear").onclick = ()=>{

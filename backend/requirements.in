@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+sqlmodel
+SQLAlchemy
+pydantic
+requests
+rapidfuzz
+python-dotenv

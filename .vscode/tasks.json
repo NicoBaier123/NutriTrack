@@ -18,6 +18,90 @@
       "osx": {
         "command": "curl -sS -X POST http://127.0.0.1:8000/advisor/chat -H 'Content-Type: application/json' -d '{\"message\":\"Gib mir eine proteinreiche Mahlzeit unter 1000 kcal.\"}'"
       }
+    },
+
+    // NEU: venv erstellen/aktualisieren + requirements installieren
+    {
+      "label": "Setup venv & deps",
+      "type": "shell",
+      "presentation": { "reveal": "silent", "panel": "shared" },
+      "windows": {
+        "command": "pwsh",
+        "args": ["-File", "scripts/bootstrap.ps1"]
+      },
+      "linux": {
+        "command": "bash",
+        "args": ["scripts/bootstrap.sh"]
+      },
+      "osx": {
+        "command": "bash",
+        "args": ["scripts/bootstrap.sh"]
+      },
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    },
+
+    // NEU: Setup & Upgrade der Pins (pip-compile --upgrade)
+    {
+      "label": "Setup venv & deps (upgrade)",
+      "type": "shell",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "windows": {
+        "command": "pwsh",
+        "args": ["-File", "scripts/bootstrap.ps1", "-Upgrade"]
+      },
+      "linux": {
+        "command": "bash",
+        "args": ["scripts/bootstrap.sh", "--upgrade"]
+      },
+      "osx": {
+        "command": "bash",
+        "args": ["scripts/bootstrap.sh", "--upgrade"]
+      },
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    },
+
+    // NEU: Schnelltest FDC-Lookup
+    {
+      "label": "Test /foods/lookup (FDC)",
+      "type": "shell",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "windows": {
+        "command": "pwsh",
+        "args": [
+          "-NoProfile",
+          "-Command",
+          "$b=@{query='magerquark';limit=5}|ConvertTo-Json; Invoke-RestMethod -Uri 'http://127.0.0.1:8000/foods/lookup' -Method Post -ContentType 'application/json' -Body $b | ConvertTo-Json -Depth 6"
+        ]
+      },
+      "linux": {
+        "command": "curl -sS -X POST http://127.0.0.1:8000/foods/lookup -H 'Content-Type: application/json' -d '{\"query\":\"magerquark\",\"limit\":5}'"
+      },
+      "osx": {
+        "command": "curl -sS -X POST http://127.0.0.1:8000/foods/lookup -H 'Content-Type: application/json' -d '{\"query\":\"magerquark\",\"limit\":5}'"
+      }
+    },
+
+    // NEU: Beispiel-Batch für /meals/ingest
+    {
+      "label": "Test /meals/ingest (batch)",
+      "type": "shell",
+      "presentation": { "reveal": "always", "panel": "shared" },
+      "windows": {
+        "command": "pwsh",
+        "args": [
+          "-NoProfile",
+          "-Command",
+          "$b=@{day='2025-10-10';source='chat';input_text='Task: Test 8 Zutaten';items=@(@{food_name='Haferflocken';grams=80},@{food_name='Magerquark';grams=250},@{food_name='Apfel';grams=150},@{food_name='Walnüsse';grams=30},@{food_name='Honig';grams=15},@{food_name='Milch 1,5%';grams=200},@{food_name='Heidelbeeren';grams=50},@{food_name='Chiasamen';grams=10})}|ConvertTo-Json -Depth 6; Invoke-RestMethod -Uri 'http://127.0.0.1:8000/meals/ingest' -Method Post -ContentType 'application/json' -Body $b | ConvertTo-Json -Depth 6"
+        ]
+      },
+      "linux": {
+        "command": "curl -sS -X POST http://127.0.0.1:8000/meals/ingest -H 'Content-Type: application/json' -d '{\"day\":\"2025-10-10\",\"source\":\"chat\",\"input_text\":\"Task: Test 8 Zutaten\",\"items\":[{\"food_name\":\"Haferflocken\",\"grams\":80},{\"food_name\":\"Magerquark\",\"grams\":250},{\"food_name\":\"Apfel\",\"grams\":150},{\"food_name\":\"Walnüsse\",\"grams\":30},{\"food_name\":\"Honig\",\"grams\":15},{\"food_name\":\"Milch 1,5%\",\"grams\":200},{\"food_name\":\"Heidelbeeren\",\"grams\":50},{\"food_name\":\"Chiasamen\",\"grams\":10}]}'"
+      },
+      "osx": {
+        "command": "curl -sS -X POST http://127.0.0.1:8000/meals/ingest -H 'Content-Type: application/json' -d '{\"day\":\"2025-10-10\",\"source\":\"chat\",\"input_text\":\"Task: Test 8 Zutaten\",\"items\":[{\"food_name\":\"Haferflocken\",\"grams\":80},{\"food_name\":\"Magerquark\",\"grams\":250},{\"food_name\":\"Apfel\",\"grams\":150},{\"food_name\":\"Walnüsse\",\"grams\":30},{\"food_name\":\"Honig\",\"grams\":15},{\"food_name\":\"Milch 1,5%\",\"grams\":200},{\"food_name\":\"Heidelbeeren\",\"grams\":50},{\"food_name\":\"Chiasamen\",\"grams\":10}]}'"
+      }
     }
   ]
 }
