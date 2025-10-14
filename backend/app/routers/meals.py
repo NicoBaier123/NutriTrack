@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select, func
 
 from ..db import get_session
+from ..utils.nutrition import macros_for_grams, round_macros
 from ..models.meals import Meal, MealItem, MealType
 from ..models.foods import Food
 
@@ -112,12 +113,9 @@ def get_day(
 
     for (item_id, grams, meal_id, meal_type, food_id, food_name,
          kcal100, p100, c100, f100) in rows:
-
-        factor = (grams or 0.0) / 100.0
-        kcal = float((kcal100 or 0.0) * factor)
-        prot = float((p100 or 0.0) * factor)
-        carbs = float((c100 or 0.0) * factor)
-        fat = float((f100 or 0.0) * factor)
+        m = macros_for_grams(kcal100, p100, c100, f100, grams or 0.0)
+        rm = round_macros(m, 1)
+        kcal, prot, carbs, fat = rm.kcal, rm.protein_g, rm.carbs_g, rm.fat_g
 
         items.append({
             "item_id": int(item_id),
@@ -126,16 +124,15 @@ def get_day(
             "food_id": int(food_id),
             "food_name": food_name,
             "grams": float(grams or 0.0),
-            "kcal": round(kcal, 1),
-            "protein_g": round(prot, 1),
-            "carbs_g": round(carbs, 1),
-            "fat_g": round(fat, 1),
+            "kcal": kcal,
+            "protein_g": prot,
+            "carbs_g": carbs,
+            "fat_g": fat,
         })
-
-        totals["kcal"] += kcal
-        totals["protein_g"] += prot
-        totals["carbs_g"] += carbs
-        totals["fat_g"] += fat
+        totals["kcal"] += m.kcal
+        totals["protein_g"] += m.protein_g
+        totals["carbs_g"] += m.carbs_g
+        totals["fat_g"] += m.fat_g
 
     for k in totals:
         totals[k] = round(totals[k], 1)

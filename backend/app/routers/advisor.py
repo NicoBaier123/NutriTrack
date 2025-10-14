@@ -75,6 +75,8 @@ class Prefs(BaseModel):
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "127.0.0.1")
 OLLAMA_PORT = int(os.getenv("OLLAMA_PORT", "11434"))
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
+# Kurzzeit-Timeouts, damit die UI schnell reagiert, wenn kein LLM läuft
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "10"))
 
 RAG_EMBED_URL = os.getenv("RAG_EMBED_URL")  # z.B. http://127.0.0.1:8001/embed
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "30"))
@@ -124,7 +126,7 @@ def _llm_generate(
     try:
         if as_json:
             # JSON-Modus via /api/generate mit format=json erzwingen
-            conn = http.client.HTTPConnection(OLLAMA_HOST, OLLAMA_PORT, timeout=60)
+            conn = http.client.HTTPConnection(OLLAMA_HOST, OLLAMA_PORT, timeout=OLLAMA_TIMEOUT)
             body = json.dumps({
                 "model": OLLAMA_MODEL,
                 "prompt": prompt,
@@ -138,7 +140,7 @@ def _llm_generate(
                 data = json.loads(res.read())
                 return data.get("response", "")
         else:
-            return _ollama_generate(prompt, model=OLLAMA_MODEL)
+            return _ollama_generate(prompt, model=OLLAMA_MODEL, timeout=OLLAMA_TIMEOUT)
     except Exception:
         pass
 
@@ -180,6 +182,17 @@ def _ollama_generate(prompt: str, model: str = OLLAMA_MODEL, as_json: bool = Fal
         raise HTTPException(status_code=503, detail=f"Ollama error {res.status}")
     data = json.loads(res.read())
     return data.get("response", "")
+
+
+def _ollama_alive(timeout: int = 2) -> bool:
+    """Schneller Reachability-Check für Ollama HTTP API."""
+    try:
+        conn = http.client.HTTPConnection(OLLAMA_HOST, OLLAMA_PORT, timeout=timeout)
+        conn.request("GET", "/api/tags")
+        res = conn.getresponse()
+        return res.status == 200
+    except Exception:
+        return False
 
 
 def _post_meal_ingest(items, day_str, input_text):
@@ -597,7 +610,8 @@ class RecipeIdea(BaseModel):
     title: str
     time_minutes: Optional[int] = None
     difficulty: Optional[Literal["easy","medium","hard"]] = "easy"
-    ingredients: List[Ingredient] = Field(Ingredient, min_items=1)
+    # kein ungültiger Default (vermeidet Schema-Warnungen)
+    ingredients: List[Ingredient] = Field(default_factory=list)
     instructions: List[str]
     macros: Optional[Macro] = None
     tags: List[str] = []
@@ -653,6 +667,17 @@ def _tighten_with_foods_db(session: Session, idea: RecipeIdea) -> RecipeIdea:
 def compose(req: ComposeRequest, session: Session = Depends(get_session)):
     constraints = _constraints_from_context(session, req)
 
+    # Vorab: Wenn kein lokales LLM verfügbar ist, schnell und klar abbrechen
+    has_local_llm = bool(LLAMA_CPP_AVAILABLE and LLAMA_CPP_MODEL_PATH and os.path.exists(LLAMA_CPP_MODEL_PATH))
+    if not has_local_llm and not _ollama_alive(timeout=2):
+        return JSONResponse(
+            status_code=503,
+            content={
+                "error": "llm_unavailable",
+                "detail": "Kein lokales LLM erreichbar. Bitte Ollama starten (oder LLAMA_CPP_MODEL_PATH konfigurieren)."
+            }
+        )
+
     system = (
         "Du bist ein präziser deutschsprachiger Ernährungscoach. "
         "Liefere 3 praktische Rezeptideen mit Zutaten (in g), klaren Schritten und geschätzten Makros pro Portion. "
@@ -692,7 +717,7 @@ Regeln: metrisch, 50–400 g/Zutat, pro Portion <= max_kcal falls gesetzt. Keine
                                           json_root="ideas")
         except Exception:
             # Fallback: /api/generate format='json'
-            raw = _ollama_generate(f"{system}\n\n{user}", as_json=True)
+            raw = _ollama_generate(f"{system}\n\n{user}", as_json=True, timeout=OLLAMA_TIMEOUT)
             # Versuch JSON parsen (mit deinem Helfer)
             data = _parse_llm_json(raw)
             raw_ideas = data.get("ideas", [])

@@ -108,6 +108,20 @@ HTML = """
 const $ = (id)=>document.getElementById(id);
 const fmt = (n)=> typeof n === "number" && isFinite(n) ? n.toLocaleString("de-DE") : n;
 
+// Globaler Fehler-Handler: zeigt JS-Fehler als Toast an
+window.addEventListener('error', (ev)=>{
+  try {
+    const msg = (ev && ev.message) || (ev && ev.error && ev.error.toString()) || 'Unbekannter Fehler';
+    const t = $("toast");
+    if (t) {
+      t.textContent = "JS-Fehler: " + msg;
+      t.style.display = "block";
+      t.style.borderColor = "var(--danger)";
+      setTimeout(()=> t.style.display="none", 5000);
+    }
+  } catch {}
+});
+
 function prefsArray(){ return Array.from($("prefs").selectedOptions).map(o=>o.value); }
 function showToast(msg, ok=true){
   const t = $("toast");
@@ -119,7 +133,7 @@ function showToast(msg, ok=true){
 
 function renderIdeas(data){
   const el = $("cards");
-  if(!data || !Array.isArray(data?.ideas) || data.ideas.length === 0){
+  if(!data || !Array.isArray(data.ideas) || data.ideas.length === 0){
     el.textContent = "Keine Ideen erhalten.";
     return;
   }
@@ -129,7 +143,7 @@ function renderIdeas(data){
     const macros = idea.macros || {};
     const tags = Array.isArray(idea.tags) ? idea.tags : [];
     const lines = [];
-    (idea.ingredients || []).forEach(it=>{
+    (idea && idea.ingredients ? idea.ingredients : []).forEach(it=>{
       lines.push(`<div class="ing">• <b>${it.name}</b> — ${fmt(it.grams)} g</div>`);
     });
     const btnMeals = day ? `<button class="success" data-idx="${idx}">In Meals übernehmen</button>` :
@@ -145,7 +159,7 @@ function renderIdeas(data){
           ${macros.fat_g!=null ? ` · F ${fmt(macros.fat_g)} g` : ""}
         </div>
         <div>${lines.join("") || "<i>Keine Zutaten erhalten.</i>"}</div>
-        ${Array.isArray(idea.instructions) && idea.instructions.length ? `<div class="hint" style="margin-top:8px;">${idea.instructions.map((s,i)=>`${i+1}. ${s}`).join("<br>")}</div>` : ""}
+  ${Array.isArray(idea.instructions) && idea.instructions.length ? `<div class=\"hint\" style=\"margin-top:8px;\">${idea.instructions.map((s,i)=>`${i+1}. ${s}`).join("<br>")}</div>` : ""}
         <div class="tags">${tags.map(t=>`<span class="tag">${t}</span>`).join("")}</div>
         <div class="actions">
           ${btnMeals}
@@ -205,14 +219,14 @@ async function pushIdeaToMeals(idea){
   const day = $("day").value;
   if(!day){ showToast("Bitte oben ein Datum wählen.", false); return; }
 
-  const items = Array.isArray(idea?.ingredients) ? idea.ingredients : [];
+  const items = Array.isArray(idea && idea.ingredients) ? idea.ingredients : [];
   if(!items.length){ showToast("Keine Zutaten vorhanden.", false); return; }
 
   // Payload für atomaren Batch-Ingest
   const payload = {
     day,
     source: "chat",
-    input_text: `DemoUI: ${idea?.title || ""}`,
+  input_text: `DemoUI: ${(idea && idea.title) || ""}`,
     items: items
       .filter(it => it && typeof it.name === "string" && Number(it.grams) > 0)
       .map(it => ({ food_name: it.name.trim(), grams: Number(it.grams) }))
@@ -232,14 +246,14 @@ async function pushIdeaToMeals(idea){
 
     // Versuche immer JSON zu lesen; bei Fehlern Rohtext anzeigen
     const text = await res.text();
-    let data = {};
-    try { data = text ? JSON.parse(text) : {}; } catch { /* ignorieren */ }
+  let data = {};
+  try { data = text ? JSON.parse(text) : {}; } catch (e) { /* ignorieren */ }
 
     if(!res.ok){
       // 409 = Duplicate ingestion (Idempotenzschutz)
       if(res.status === 409){
         showToast("Bereits gespeichert (Duplikat erkannt).", false);
-      } else if (data?.detail){
+      } else if (data && data.detail){
         showToast(`Speichern fehlgeschlagen: ${typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail)}`, false);
       } else {
         showToast(`Speichern fehlgeschlagen (HTTP ${res.status})`, false);
@@ -261,8 +275,8 @@ async function pushIdeaToMeals(idea){
     await fetchMeals();
 
     // Optional: bei fehlenden Items schnellen Lookup andeuten (Ergebnis rechts anzeigen)
-    if (Array.isArray(data?.items)) {
-      const missing = data.items.filter(x => x.status === "not_found").map(x => x.food_name);
+    if (data && Array.isArray(data.items)) {
+      const missing = data.items.filter(function(x){ return x.status === "not_found"; }).map(function(x){ return x.food_name; });
       if (missing.length) {
         const q = missing[0];
         try {
@@ -273,7 +287,7 @@ async function pushIdeaToMeals(idea){
           });
           const jr = await r.json();
           $("out").textContent = "Lookup " + q + ":\n" + JSON.stringify(jr, null, 2);
-        } catch {}
+        } catch (e) {}
       }
     }
 
@@ -295,6 +309,9 @@ $("go").onclick = async () => {
   btn.disabled = true;
   out.textContent = "Denke nach…";
   try {
+    // Clientseitiges Timeout, falls Backend hängt
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
     const body = {
       message: $("msg").value || "",
       body_weight_kg: $("bw").value ? parseFloat($("bw").value) : null,
@@ -305,16 +322,24 @@ $("go").onclick = async () => {
     const res = await fetch("/advisor/compose", {
       method: "POST",
       headers: {"Content-Type":"application/json"},
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: ctrl.signal
     });
-
     const text = await res.text();      // erst Text holen
     let data;
     try {
-      data = JSON.parse(text);          // dann JSON versuchen
-    } catch {
-      out.innerHTML = `HTTP ${res.status}<br><span class="err">${text.replace(/</g,"&lt;")}</span>`;
+      data = text ? JSON.parse(text) : {};
+    } catch (e) {
+      out.innerHTML = `HTTP ${res.status}<br><span class=\"err\">${text.replace(/</g,"&lt;")}</span>`;
       cards.textContent = "Fehler – siehe Rohantwort rechts.";
+      showToast("Fehler beim Erzeugen (Parser)", false);
+      return;
+    }
+    if(!res.ok){
+      out.textContent = JSON.stringify(data, null, 2) || text || `HTTP ${res.status}`;
+      const msg = (data && typeof data.detail === "string") ? data.detail : ((data && data.error) || `Fehler (HTTP ${res.status})`);
+      cards.textContent = "Fehler – siehe Rohantwort rechts.";
+      showToast(msg, false);
       return;
     }
     out.textContent = JSON.stringify(data, null, 2);
@@ -322,7 +347,9 @@ $("go").onclick = async () => {
   } catch(e){
     out.textContent = "Fehler (Client): " + e;
     $("cards").textContent = "Fehler – siehe Rohantwort rechts.";
+    showToast("Netzwerkfehler", false);
   } finally {
+    try { clearTimeout(timer); } catch (e) {}
     btn.disabled = false;
   }
 };
