@@ -663,31 +663,341 @@ def _tighten_with_foods_db(session: Session, idea: RecipeIdea) -> RecipeIdea:
         idea.macros = Macro(kcal=round(kcal,1), protein_g=round(p,1), carbs_g=round(c,1), fat_g=round(f,1))
     return idea
 
+
+def _prefs_from_compose(req: ComposeRequest) -> Prefs:
+    pref_set = set(req.preferences or [])
+    cuisine_map = {"german": "german", "italian": "italian", "asian": "asian"}
+    cuisine_bias = [cuisine_map[p] for p in pref_set if p in cuisine_map]
+    return Prefs(
+        veggie=True if "vegetarian" in pref_set else None,
+        vegan=True if "vegan" in pref_set else None,
+        no_pork=True if "no_pork" in pref_set else None,
+        lactose_free=True if "lactose_free" in pref_set else None,
+        gluten_free=True if "gluten_free" in pref_set else None,
+        allergens_avoid=None,
+        budget_level="low" if "budget" in pref_set else None,
+        cuisine_bias=cuisine_bias or None,
+    )
+
+
+def _fallback_title(main_food: Food, message_hint: str, idx: int) -> str:
+    name = getattr(main_food, "name", "Idee").strip()
+    hint = message_hint.lower()
+    if "fruehstueck" in hint or "fruhstuck" in hint:
+        return f"Proteinreiches Fruehstueck mit {name}"
+    if "salat" in hint:
+        return f"{name}-Salat-Bowl"
+    if "snack" in hint:
+        return f"Schneller Snack: {name}"
+    if "mittag" in hint or "lunch" in hint:
+        return f"Schnelles Mittag: {name}"
+    if "abend" in hint or "dinner" in hint:
+        return f"Abendessen: {name}"
+    return f"Idee {idx+1}: {name}"
+
+def _fallback_instructions(main_food: Food, sides: List[Food]) -> List[str]:
+    steps = [
+        f"{getattr(main_food, 'name', 'Hauptzutat')} portionsgerecht zubereiten (anbraten, backen oder daempfen)."
+    ]
+    if sides:
+        steps.append("Beilagen garen oder frisch anrichten und nach Bedarf wuerzen.")
+    steps.append("Alles zusammen anrichten, abschmecken und servieren.")
+    return steps
+
+def _respect_max_kcal(session: Session, idea: RecipeIdea, max_kcal: Optional[float]) -> RecipeIdea:
+    if not max_kcal or not idea.macros or idea.macros.kcal <= max_kcal:
+        return idea
+    if idea.macros.kcal <= 0:
+        return idea
+    scale = max_kcal / idea.macros.kcal
+    scale = max(scale, 0.4)  # nicht zu extrem reduzieren
+    changed = False
+    for ing in idea.ingredients:
+        if ing.grams and ing.grams > 0:
+            ing.grams = round(max(40.0, ing.grams * scale), 1)
+            changed = True
+    if changed:
+        idea = _tighten_with_foods_db(session, idea)
+    return idea
+
+
+def _combo_matches_preferences(ingredients: List[Ingredient], prefs: Prefs) -> bool:
+    def _name_has(substrs: List[str], name: str) -> bool:
+        lower = name.lower()
+        return any(s in lower for s in substrs)
+
+    if prefs.vegan:
+        for ing in ingredients:
+            if _name_has(["huhn", "puten", "rind", "lachs", "fisch", "ei", "joghurt", "skyr", "kaese", "quark"], ing.name):
+                return False
+    elif prefs.veggie:
+        for ing in ingredients:
+            if _name_has(["huhn", "puten", "rind", "lachs", "schinken", "speck", "fisch"], ing.name):
+                return False
+
+    if prefs.no_pork:
+        for ing in ingredients:
+            if _name_has(["schwein", "schinken", "speck"], ing.name):
+                return False
+
+    if prefs.lactose_free:
+        for ing in ingredients:
+            if _name_has(["milch", "joghurt", "skyr", "kaese", "quark", "butter"], ing.name) and "laktosefrei" not in ing.name.lower():
+                return False
+
+    return True
+
+
+def _combo_score(meta: Dict[str, Any], message_hint: str, prefs: Prefs) -> float:
+    score = 0.0
+    kind = meta.get("kind")
+    tags = meta.get("tags", [])
+    hint = message_hint
+
+    if kind == "breakfast" and any(k in hint for k in ["frueh", "breakfast", "morg"]):
+        score += 3.0
+    if kind == "snack" and "snack" in hint:
+        score += 2.5
+    if kind in ("lunch", "dinner") and any(k in hint for k in ["mittag", "lunch", "abend", "dinner"]):
+        score += 2.5
+
+    if prefs.cuisine_bias:
+        if any(tag in prefs.cuisine_bias for tag in tags):
+            score += 1.5
+        else:
+            score -= 0.5
+
+    if prefs.budget_level == "low" and meta.get("cost") == "low":
+        score += 0.5
+
+    # Light preference for bowls if user mentions "bowl"
+    if "bowl" in hint and "bowl" in tags:
+        score += 1.0
+
+    return score
+
+
+def _generic_fallback_ideas(req: ComposeRequest, prefs: Prefs) -> List[RecipeIdea]:
+    message_hint = (req.message or "").lower()
+
+    combos: List[Dict[str, Any]] = [
+        {
+            "title": "Tofu-Gemuese-Pfanne",
+            "ingredients": [("Tofu natur", 200.0), ("Brokkoli", 120.0), ("Paprika", 80.0), ("Sesamoel", 10.0)],
+            "instructions": [
+                "Tofu in Wuerfel schneiden und in etwas Oel knusprig anbraten.",
+                "Gemuese zugeben, wuerzen und bissfest garen."
+            ],
+            "tags": ["vegan", "warm", "pfanne", "asian"],
+            "kind": "dinner",
+            "diet": "vegan",
+            "cost": "low",
+        },
+        {
+            "title": "Kichererbsen-Quinoa-Bowl",
+            "ingredients": [("Kichererbsen (Dose)", 160.0), ("Quinoa gekocht", 140.0), ("Gurkenwuerfel", 80.0), ("Babyspinat", 50.0), ("Olivenoel", 12.0)],
+            "instructions": [
+                "Quinoa nach Packungsangabe garen.",
+                "Kichererbsen abspuelen, mit Gemuese und Spinat mischen, mit Oel und Zitrone abschmecken."
+            ],
+            "tags": ["vegan", "bowl", "mediterran"],
+            "kind": "lunch",
+            "diet": "vegan",
+            "cost": "low",
+        },
+        {
+            "title": "Hafer-Beeren-Fruehstueck",
+            "ingredients": [("Haferflocken", 60.0), ("Pflanzendrink", 200.0), ("Beerenmischung", 120.0), ("Mandeln gehackt", 20.0)],
+            "instructions": [
+                "Haferflocken mit Pflanzendrink kurz erhitzen oder ueber Nacht einweichen.",
+                "Mit Beeren und Mandeln toppen."
+            ],
+            "tags": ["fruehstueck", "vegetarisch", "bowl"],
+            "kind": "breakfast",
+            "diet": "vegetarian",
+            "cost": "low",
+        },
+        {
+            "title": "Huehnchen mit Ofengemuese",
+            "ingredients": [("Huhnbrustfilet", 180.0), ("Suesse Kartoffel", 150.0), ("Zucchini", 120.0), ("Olivenoel", 12.0)],
+            "instructions": [
+                "Gemuese wuerfeln, mit Oel und Gewuerzen vermengen und im Ofen roesten.",
+                "Huehnchen wuerzen und mit backen oder separat anbraten."
+            ],
+            "tags": ["warm", "deftig", "german"],
+            "kind": "dinner",
+            "diet": "omnivore",
+            "cost": "mid",
+        },
+        {
+            "title": "Linsen-Nudel-Salat",
+            "ingredients": [("Linsennudeln gekocht", 150.0), ("Cherrytomaten", 100.0), ("Rucola", 40.0), ("Feta (optional)", 40.0), ("Olivenoel", 12.0)],
+            "instructions": [
+                "Nudeln kochen, kalt abschrecken.",
+                "Mit Tomaten, Rucola und Dressing vermischen, optional Feta dazugeben."
+            ],
+            "tags": ["lunch", "bowl", "mediterran"],
+            "kind": "lunch",
+            "diet": "vegetarian",
+            "cost": "low",
+        },
+        {
+            "title": "Avocado-Vollkorn-Toast",
+            "ingredients": [("Vollkorntoast", 70.0), ("Avocado", 80.0), ("Cherrytomaten", 60.0), ("Kresse", 5.0), ("Zitronensaft", 10.0)],
+            "instructions": [
+                "Toast roesten, Avocado zerdruecken und mit Zitronensaft, Salz und Pfeffer abschmecken.",
+                "Auf Toast streichen, mit Tomaten und Kresse belegen."
+            ],
+            "tags": ["snack", "vegetarisch"],
+            "kind": "snack",
+            "diet": "vegetarian",
+            "cost": "mid",
+        },
+    ]
+
+    ingredient_objs_template = [
+        [Ingredient(name=name, grams=grams) for name, grams in combo["ingredients"]]
+        for combo in combos
+    ]
+
+    available_combos: List[Dict[str, Any]] = []
+    for combo, ingredients in zip(combos, ingredient_objs_template):
+        if _combo_matches_preferences(ingredients, prefs):
+            combo_copy = dict(combo)
+            combo_copy["ingredients_obj"] = ingredients
+            available_combos.append(combo_copy)
+
+    # Wenn nichts passt (z.B. sehr strenge Preferences), setze alle, aber ohne Problemzutaten
+    if not available_combos:
+        for combo, ingredients in zip(combos, ingredient_objs_template):
+            filtered = []
+            for ing in ingredients:
+                if prefs.vegan and any(k in ing.name.lower() for k in ["huhn", "feta", "skyr", "huhnbrust", "huehn"]):
+                    continue
+                if prefs.lactose_free and "feta" in ing.name.lower():
+                    continue
+                filtered.append(ing)
+            combo_copy = dict(combo)
+            combo_copy["ingredients_obj"] = filtered or ingredients
+            available_combos.append(combo_copy)
+
+    available_combos.sort(key=lambda c: _combo_score(c, message_hint, prefs), reverse=True)
+
+    ideas: List[RecipeIdea] = []
+    for combo in available_combos:
+        ingredients = [Ingredient(name=ing.name, grams=ing.grams) for ing in combo["ingredients_obj"]]
+        idea = RecipeIdea(
+            title=combo["title"],
+            time_minutes=20 if combo["kind"] != "breakfast" else 10,
+            difficulty="easy",
+            ingredients=ingredients,
+            instructions=combo["instructions"],
+            tags=["fallback", "ohne_llm"] + combo.get("tags", []),
+        )
+        ideas.append(idea)
+        if len(ideas) >= 3:
+            break
+
+    return ideas
+
+
+def _compose_fallback_ideas(
+    session: Session, req: ComposeRequest, constraints: Dict[str, Any], prefs: Prefs
+) -> List[RecipeIdea]:
+    foods_pool = _apply_prefs_filter_foods(_food_list_for_prompt(session, top_n=36), prefs)
+    if not foods_pool:
+        foods_pool = _apply_prefs_filter_foods(session.exec(select(Food)).all(), prefs)
+    if not foods_pool:
+        return _generic_fallback_ideas(req, prefs)
+
+    ideas: List[RecipeIdea] = []
+    hint = (req.message or "").lower()
+
+    for idx, main in enumerate(foods_pool[:3]):
+        sides: List[Food] = []
+        for offset in range(1, len(foods_pool)):
+            cand = foods_pool[(idx + offset) % len(foods_pool)]
+            if cand is main or cand in sides:
+                continue
+            sides.append(cand)
+            if len(sides) >= 2:
+                break
+
+        main_protein = float(getattr(main, "protein_g", 0.0) or 0.0)
+        main_grams = 180.0 if main_protein >= 20.0 else 200.0
+        ingredients = [Ingredient(name=getattr(main, "name", "Hauptzutat"), grams=round(main_grams, 1))]
+
+        for side in sides:
+            carbs = float(getattr(side, "carbs_g", 0.0) or 0.0)
+            protein = float(getattr(side, "protein_g", 0.0) or 0.0)
+            grams = 120.0 if carbs >= protein else 90.0
+            ingredients.append(Ingredient(name=getattr(side, "name", "Beilage"), grams=round(grams, 1)))
+
+        idea = RecipeIdea(
+            title=_fallback_title(main, hint, idx),
+            time_minutes=20,
+            difficulty="easy",
+            ingredients=ingredients,
+            instructions=_fallback_instructions(main, sides),
+            tags=["fallback", "ohne_llm"],
+        )
+        idea = _tighten_with_foods_db(session, idea)
+        idea = _respect_max_kcal(session, idea, constraints.get("max_kcal"))
+
+        pref_tags: List[str] = []
+        if prefs.vegan:
+            pref_tags.append("vegan")
+        elif prefs.veggie:
+            pref_tags.append("vegetarisch")
+        if prefs.cuisine_bias:
+            pref_tags.extend(prefs.cuisine_bias)
+        if prefs.no_pork:
+            pref_tags.append("ohne_schwein")
+        if pref_tags:
+            seen = set(idea.tags)
+            for tag in pref_tags:
+                if tag not in seen:
+                    idea.tags.append(tag)
+                    seen.add(tag)
+
+        ideas.append(idea)
+
+    return ideas
+
 @router.post("/compose", response_model=ComposeResponse)
 def compose(req: ComposeRequest, session: Session = Depends(get_session)):
     constraints = _constraints_from_context(session, req)
+    prefs = _prefs_from_compose(req)
 
-    # Vorab: Wenn kein lokales LLM verfügbar ist, schnell und klar abbrechen
+    # Vorab: Wenn kein lokales LLM erreichbar ist, heuristischen Fallback versuchen
     has_local_llm = bool(LLAMA_CPP_AVAILABLE and LLAMA_CPP_MODEL_PATH and os.path.exists(LLAMA_CPP_MODEL_PATH))
     if not has_local_llm and not _ollama_alive(timeout=2):
+        fallback_ideas = _compose_fallback_ideas(session, req, constraints, prefs)
+        if fallback_ideas:
+            return ComposeResponse(
+                constraints=constraints,
+                ideas=fallback_ideas,
+                notes=["Fallback-Modus: Vorschlaege aus lokaler Food-Datenbank, da kein LLM erreichbar war."]
+            )
         return JSONResponse(
             status_code=503,
             content={
                 "error": "llm_unavailable",
-                "detail": "Kein lokales LLM erreichbar. Bitte Ollama starten (oder LLAMA_CPP_MODEL_PATH konfigurieren)."
+                "detail": "Kein lokales LLM erreichbar und keine lokalen Rezept-Heuristiken verfuegbar. Bitte Ollama starten oder Food-Datenbank befuellen."
             }
         )
 
     system = (
-        "Du bist ein präziser deutschsprachiger Ernährungscoach. "
-        "Liefere 3 praktische Rezeptideen mit Zutaten (in g), klaren Schritten und geschätzten Makros pro Portion. "
-        "Beachte Präferenzen (vegetarian/vegan/no_pork/lactose_free/budget/kitchen=italian,german,...). "
-        "Antwort ausschließlich als JSON in dem angegebenen Format."
+        "Du bist ein praeziser deutschsprachiger Ernaehrungscoach. "
+        "Liefere 3 praktische Rezeptideen mit Zutaten (in g), klaren Schritten und geschaetzten Makros pro Portion. "
+        "Beachte Praeferenzen (vegetarian/vegan/no_pork/lactose_free/budget/kitchen=italian,german,...). "
+        "Antworte ausschliesslich als JSON in dem angegebenen Format."
     )
+    prefs_payload = prefs.model_dump(exclude_none=True)
     user = f"""
 Nutzeranfrage: {req.message}
 Servings: {req.servings}
-Präferenzen: {", ".join(req.preferences) if req.preferences else "keine"}
+Praeferenzen: {json.dumps(prefs_payload, ensure_ascii=False) if prefs_payload else "keine"}
 Constraints: {json.dumps(constraints, ensure_ascii=False)}
 JSON-Format:
 {{
@@ -704,7 +1014,7 @@ JSON-Format:
     ...
   ]
 }}
-Regeln: metrisch, 50–400 g/Zutat, pro Portion <= max_kcal falls gesetzt. Keine Erklärtexte außerhalb des JSON.
+Regeln: metrisch, 50-400 g/Zutat, pro Portion <= max_kcal falls gesetzt. Keine Erklaertexte ausserhalb des JSON.
 """
 
     # ---- LLM call + JSON-Parsing robust ----

@@ -6,10 +6,10 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlmodel import Session, select, func
 
-from ..db import get_session
-from ..models.wearables import WearableDaily
-from ..models.foods import Food
-from ..models.meals import Meal, MealItem
+from app.db import get_session
+from app.models.wearables import WearableDaily
+from app.models.foods import Food
+from app.models.meals import Meal, MealItem
 
 router = APIRouter(prefix="/summary", tags=["summary"])
 

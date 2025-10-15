@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlmodel import Session, select
 
-from ..db import get_session
-from ..models.wearables import (
+from app.db import get_session
+from app.models.wearables import (
     WearableDaily,
     WearableDailyRead,
     WearableDailyUpsert,

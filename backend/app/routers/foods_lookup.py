@@ -7,9 +7,9 @@ from pydantic import BaseModel, Field
 from pydantic import ConfigDict  # Pydantic v2
 from sqlmodel import Session, select
 
-from ..db import get_session
-from ..models.foods import Food
-from ..models.foods_extra import FoodSource, FoodSynonym
+from app.db import get_session
+from app.models.foods import Food
+from app.models.foods_extra import FoodSource, FoodSynonym
 
 import os
 import requests

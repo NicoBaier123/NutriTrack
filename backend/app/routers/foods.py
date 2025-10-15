@@ -2,8 +2,8 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import func
 from sqlmodel import Session, select, SQLModel
-from ..db import get_session
-from ..models.foods import Food
+from app.db import get_session
+from app.models.foods import Food
 
 router = APIRouter(prefix="/foods", tags=["foods"])
 

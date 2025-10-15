@@ -8,10 +8,10 @@ from typing import Optional, List, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session, select, func
 
-from ..db import get_session
-from ..utils.nutrition import macros_for_grams, round_macros
-from ..models.meals import Meal, MealItem, MealType
-from ..models.foods import Food
+from app.db import get_session
+from app.utils.nutrition import macros_for_grams, round_macros
+from app.models.meals import Meal, MealItem, MealType
+from app.models.foods import Food
 
 router = APIRouter(prefix="/meals", tags=["meals"])
 

@@ -4,9 +4,9 @@ from sqlmodel import Session
 from datetime import date
 import tempfile, os, http.client, json
 
-from ..db import get_session
-from ..models.foods import Food
-from ..models.meals import Meal, MealItem, MealType
+from app.db import get_session
+from app.models.foods import Food
+from app.models.meals import Meal, MealItem, MealType
 from faster_whisper import WhisperModel
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])

@@ -1,21 +1,21 @@
 # backend/app/routers/meals_ingest.py
 from __future__ import annotations
+
+import hashlib
+import re
+import unicodedata
 from datetime import date, datetime
 from typing import List, Literal, Optional
-from rapidfuzz import process, fuzz
-from sqlmodel import select
-from app.models.foods import Food
-from app.models.foods_extra import FoodSynonym, FoodPending
-import re, unicodedata
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
+from rapidfuzz import fuzz, process
 from sqlmodel import Session, select
 
-from ..db import get_session
-from ..models.meals import Meal, MealItem
-from ..models.foods import Food
-import hashlib, unicodedata
+from app.db import get_session
+from app.models.foods import Food
+from app.models.foods_extra import FoodSynonym, FoodPending
+from app.models.meals import Meal, MealItem
 
 router = APIRouter(prefix="/meals", tags=["meals"])
 
