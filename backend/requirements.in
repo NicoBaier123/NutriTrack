@@ -6,3 +6,4 @@ pydantic
 requests
 rapidfuzz
 python-dotenv
+pydantic-settings
