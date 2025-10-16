@@ -6,7 +6,7 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parents[1] / ".env")  # lädt .
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from sqlalchemy import inspect
-
+from fastapi import Response
 from .db import init_db, engine
 
 # Kernrouter (immer laden)
@@ -20,6 +20,10 @@ async def enforce_utf8_json(request, call_next):
     if resp.headers.get("content-type","").startswith("application/json"):
         resp.headers["content-type"] = "application/json; charset=utf-8"
     return resp
+
+@app.get("/favicon.ico")
+def favicon():
+    return Response(status_code=204)  # kein Inhalt, kein Fehler
 
 # Router registrieren (Kern)
 app.include_router(health.router, tags=["health"])

@@ -286,7 +286,7 @@ async function pushIdeaToMeals(idea){
             body: JSON.stringify({ query: q, limit: 5 })
           });
           const jr = await r.json();
-          $("out").textContent = "Lookup " + q + ":\n" + JSON.stringify(jr, null, 2);
+          $("out").textContent = "Lookup " + q + ":\\n" + JSON.stringify(jr, null, 2);
         } catch (e) {}
       }
     }
@@ -311,7 +311,7 @@ $("go").onclick = async () => {
   try {
     // Clientseitiges Timeout, falls Backend hängt
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 12000);
+    const timer = setTimeout(() => ctrl.abort(), 60000);
     const body = {
       message: $("msg").value || "",
       body_weight_kg: $("bw").value ? parseFloat($("bw").value) : null,
