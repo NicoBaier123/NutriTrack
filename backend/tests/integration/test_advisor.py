@@ -2,10 +2,13 @@ from datetime import date
 
 import pytest
 from fastapi import HTTPException
+from sqlmodel import select
 
 from app.models.foods import Food
 from app.models.meals import Meal, MealItem
+from app.models.recipes import Recipe, RecipeItem
 from app.routers import advisor
+from app.utils import llm as llm_utils
 
 
 def _seed_foods(session):
@@ -50,6 +53,7 @@ async def test_advisor_gaps_calculates_remaining(client, db_session):
 
 @pytest.mark.asyncio
 async def test_advisor_compose_fallback_without_llm(client, db_session, monkeypatch):
+    monkeypatch.setattr(advisor.SETTINGS, "advisor_llm_enabled", False)
     _seed_foods(db_session)
     monkeypatch.setattr(advisor, "_ollama_alive", lambda timeout=2: False)
     monkeypatch.setattr(advisor, "LLAMA_CPP_AVAILABLE", False)
@@ -62,11 +66,59 @@ async def test_advisor_compose_fallback_without_llm(client, db_session, monkeypa
     assert response.status_code == 200, response.text
     payload = response.json()
     assert len(payload["ideas"]) >= 1
-    assert any("Fallback" in note for note in payload.get("notes", []))
+    notes_text = " ".join(payload.get("notes", []))
+    assert "fallback" in notes_text.lower() or "llm deaktiviert" in notes_text.lower()
+
+    recipes = db_session.exec(select(Recipe)).all()
+    assert len(recipes) == len(payload["ideas"])
+    assert all(r.source == "fallback" for r in recipes)
+    ingredients = db_session.exec(select(RecipeItem)).all()
+    assert ingredients
+
+
+@pytest.mark.asyncio
+async def test_advisor_compose_persists_llm_recipes(client, db_session, monkeypatch):
+    monkeypatch.setattr(advisor.SETTINGS, "advisor_llm_enabled", True)
+    _seed_foods(db_session)
+    monkeypatch.setattr(advisor, "_ollama_alive", lambda timeout=2: True)
+    monkeypatch.setattr(advisor, "LLAMA_CPP_AVAILABLE", False)
+    monkeypatch.setattr(advisor, "LLAMA_CPP_MODEL_PATH", None)
+
+    def fake_llm_generate_json(*_args, **_kwargs):
+        return [
+            {
+                "title": "Protein Bowl",
+                "time_minutes": 15,
+                "difficulty": "easy",
+                "ingredients": [
+                    {"name": "Magerquark", "grams": 200},
+                    {"name": "Banane", "grams": 100},
+                ],
+                "instructions": ["Mix everything", "Serve cold"],
+                "macros": {"kcal": 520, "protein_g": 48, "carbs_g": 45, "fat_g": 12},
+                "tags": ["test", "llm"],
+            }
+        ]
+
+    monkeypatch.setattr(llm_utils, "llm_generate_json", fake_llm_generate_json)
+
+    response = await client.post(
+        "/advisor/compose",
+        json={"message": "Test LLM recipe", "servings": 2},
+    )
+    assert response.status_code == 200, response.text
+    payload = response.json()
+    assert payload["ideas"], payload
+
+    recipes = db_session.exec(select(Recipe)).all()
+    assert recipes and recipes[0].source == "llm"
+    ingredients = db_session.exec(select(RecipeItem).where(RecipeItem.recipe_id == recipes[0].id)).all()
+    assert ingredients
 
 
 @pytest.mark.asyncio
 async def test_advisor_recommendations_fallback_without_llm(client, db_session, monkeypatch):
+    monkeypatch.setattr(advisor.SETTINGS, "advisor_llm_enabled", False)
     foods = _seed_foods(db_session)
     target_day = date(2025, 1, 2)
     _add_meal(db_session, target_day, foods[1], grams=90)

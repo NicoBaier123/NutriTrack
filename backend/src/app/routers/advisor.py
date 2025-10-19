@@ -4,6 +4,7 @@ from datetime import date
 from typing import List, Optional, Literal, Dict, Any, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
 import http.client, json, os, math
 import subprocess
@@ -12,6 +13,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
 
 
+from app.core.config import get_settings
 from app.db import get_session
 from app.models.foods import Food
 from app.models.meals import Meal, MealItem
@@ -25,6 +27,7 @@ except Exception:
     HAS_RECIPES = False
 
 router = APIRouter(prefix="/advisor", tags=["advisor"])
+SETTINGS = get_settings()
 
 # ==================== Modelle ====================
 
@@ -157,7 +160,7 @@ def _llm_generate(
 
 # NEU: System-Prompt für Chat-ähnliche Antworten (de, sachlich, knapp, hilfreich).
 SYSTEM_PROMPT_CHAT = (
-    "Du bist ein hilfsbereiter, präziser Ernährungs- und Fitnessassistent. "
+    "Du bist ein hilfsbereiter, praeziser Ernährungs- und Fitnessassistent. "
     "Antworte knapp, klar und mit konkreten Zahlen, wenn sinnvoll. "
     "Wenn dir Informationen fehlen, nenne explizit, was du brauchst. "
     "Keine Halluzinationen: sei ehrlich, wenn du etwas nicht weißt."
@@ -318,15 +321,22 @@ def _retrieve_candidates(session: Session, prefs: Prefs, top_k: int = RAG_TOP_K)
 
     if HAS_RECIPES:
         # hole Rezepte + Items
-        recipes = session.exec(select(Recipe)).all()
+        recipes = session.exec(select(Recipe).options(selectinload(Recipe.ingredients)).order_by(Recipe.created_at.desc()).limit(top_k)).all()
         for r in recipes:
             # leichte Beschreibung als RAG-Text
-            text = f"{r.name} {getattr(r, 'tags', '')}"
+            title = getattr(r, 'title', '') or ''
+            text = f"{title} {getattr(r, 'tags', '')}"
             candidates.append({
                 "type": "recipe",
                 "id": r.id,
-                "name": r.name,
+                "name": title,
                 "text": text,
+                "macros": {
+                    "kcal": getattr(r, 'macros_kcal', None),
+                    "protein_g": getattr(r, 'macros_protein_g', None),
+                    "carbs_g": getattr(r, 'macros_carbs_g', None),
+                    "fat_g": getattr(r, 'macros_fat_g', None),
+                },
             })
     else:
         foods = session.exec(select(Food)).all()
@@ -344,7 +354,7 @@ def _retrieve_candidates(session: Session, prefs: Prefs, top_k: int = RAG_TOP_K)
                 "fat_g_100g": float(getattr(f,"fat_g",0) or 0),
             })
 
-    # Embedding-Ranking, wenn verfügbar
+    # Embedding-Ranking, wenn verfuegbar
     vecs = _embed_texts([c["text"] for c in candidates]) if candidates else None
     if vecs:
         q_vecs = _embed_texts(["high protein simple snack balanced macros"])
@@ -438,6 +448,182 @@ def _fallback_recommendations_from_foods(
 
     return suggestions
 
+
+
+def _merge_ideas(primary: List["RecipeIdea"], secondary: List["RecipeIdea"]) -> List["RecipeIdea"]:
+    seen = {idea.title.lower(): idea for idea in primary}
+    merged = list(primary)
+    for idea in secondary:
+        key = idea.title.lower()
+        if key not in seen:
+            merged.append(idea)
+            seen[key] = idea
+    return merged
+
+def _persist_recipe_ideas(
+    session: Session,
+    req: "ComposeRequest",
+    prefs: Prefs,
+    constraints: Dict[str, Any],
+    ideas: List["RecipeIdea"],
+    source: str,
+) -> None:
+    if not HAS_RECIPES or not ideas:
+        return
+
+    try:
+        prefs_json = json.dumps(prefs.model_dump(exclude_none=True), ensure_ascii=False) if prefs else None
+        constraints_json = json.dumps(constraints, ensure_ascii=False) if constraints else None
+
+        for idea in ideas:
+            if session.exec(
+                select(Recipe).where(
+                    Recipe.title == idea.title,
+                    Recipe.source == source,
+                )
+            ).first():
+                continue
+
+            instructions_payload = idea.instructions or []
+            recipe = Recipe(
+                title=idea.title,
+                source=source,
+                request_message=req.message,
+                request_day=req.day,
+                request_servings=req.servings,
+                preferences_json=prefs_json,
+                constraints_json=constraints_json,
+                instructions_json=instructions_payload,
+                time_minutes=idea.time_minutes,
+                difficulty=idea.difficulty,
+                tags=",".join(idea.tags or []),
+                macros_kcal=(idea.macros.kcal if idea.macros else None),
+                macros_protein_g=(idea.macros.protein_g if idea.macros else None),
+                macros_carbs_g=(idea.macros.carbs_g if idea.macros else None),
+                macros_fat_g=(idea.macros.fat_g if idea.macros else None),
+            )
+            session.add(recipe)
+            session.flush()
+
+            for ingredient in idea.ingredients:
+                session.add(
+                    RecipeItem(
+                        recipe_id=recipe.id,
+                        name=ingredient.name,
+                        grams=ingredient.grams,
+                        note=ingredient.note,
+                    )
+                )
+        session.commit()
+    except Exception as exc:
+        session.rollback()
+        print("[WARN] Persisting recipe ideas failed:", exc)
+
+
+def _recipe_to_idea(recipe: "Recipe") -> "RecipeIdea":
+    macros = None
+    if (
+        recipe.macros_kcal is not None
+        and recipe.macros_protein_g is not None
+        and recipe.macros_carbs_g is not None
+        and recipe.macros_fat_g is not None
+    ):
+        macros = Macro(
+            kcal=float(recipe.macros_kcal),
+            protein_g=float(recipe.macros_protein_g),
+            carbs_g=float(recipe.macros_carbs_g),
+            fat_g=float(recipe.macros_fat_g),
+        )
+
+    tags = [t.strip() for t in (recipe.tags or "").split(",") if t.strip()]
+
+    return RecipeIdea(
+        title=recipe.title,
+        time_minutes=recipe.time_minutes,
+        difficulty=recipe.difficulty or "easy",
+        ingredients=[
+            Ingredient(name=ing.name, grams=ing.grams, note=ing.note) for ing in getattr(recipe, "ingredients", [])
+        ],
+        instructions=list(recipe.instructions_json or []),
+        macros=macros,
+        tags=tags,
+    )
+
+
+def _idea_to_suggestion(idea: "RecipeIdea", source: str = "db") -> Suggestion:
+    return Suggestion(
+        name=idea.title,
+        items=[SuggestionItem(food=ing.name, grams=ing.grams or 0.0) for ing in idea.ingredients],
+        source=source,
+        est_kcal=idea.macros.kcal if idea.macros else None,
+        est_protein_g=idea.macros.protein_g if idea.macros else None,
+        est_carbs_g=idea.macros.carbs_g if idea.macros else None,
+        est_fat_g=idea.macros.fat_g if idea.macros else None,
+    )
+
+
+def _ideas_to_suggestions(ideas: List["RecipeIdea"], source: str = "db") -> List[Suggestion]:
+    return [_idea_to_suggestion(idea, source=source) for idea in ideas]
+
+
+def _merge_suggestions(primary: List[Suggestion], secondary: List[Suggestion]) -> List[Suggestion]:
+    seen = {suggestion.name.lower(): suggestion for suggestion in primary}
+    merged = list(primary)
+    for suggestion in secondary:
+        key = suggestion.name.lower()
+        if key not in seen:
+            merged.append(suggestion)
+            seen[key] = suggestion
+    return merged
+
+
+def _recipes_matching_query(
+    session: Session,
+    req: "ComposeRequest",
+    prefs: Prefs,
+    constraints: Dict[str, Any],
+    limit: int,
+) -> List["RecipeIdea"]:
+    if not HAS_RECIPES:
+        return []
+
+    stmt = (
+        select(Recipe)
+        .options(selectinload(Recipe.ingredients))
+        .order_by(Recipe.created_at.desc())
+        .limit(limit * 3)
+    )
+    recipes = session.exec(stmt).all()
+    ideas: List[RecipeIdea] = []
+    hint = (req.message or "").lower()
+    max_kcal = constraints.get("max_kcal")
+
+    for recipe in recipes:
+        tags = [t.strip().lower() for t in (recipe.tags or "").split(",") if t.strip()]
+
+        if prefs.vegan and "vegan" not in tags:
+            continue
+        if prefs.veggie and not any(t in tags for t in ("vegetarisch", "vegetarian", "veggie", "vegan")):
+            continue
+        if prefs.no_pork and "pork" in tags:
+            continue
+        if prefs.cuisine_bias and tags and not any(bias.lower() in tags for bias in prefs.cuisine_bias):
+            continue
+        if max_kcal is not None and recipe.macros_kcal is not None and recipe.macros_kcal > max_kcal:
+            continue
+
+        idea = _recipe_to_idea(recipe)
+
+        if hint and not any(word in (recipe.title or "").lower() for word in hint.split()):
+            if not any(word in tags for word in hint.split()):
+                continue
+
+        ideas.append(idea)
+        if len(ideas) >= limit:
+            break
+
+    return ideas
+
 def _parse_llm_json(raw: str) -> Dict[str, Any]:
     start, end = raw.find("{"), raw.rfind("}")
     if start < 0 or end <= start:
@@ -514,7 +700,6 @@ def recommendations(
     protein_g_per_kg: float = Query(1.8, ge=1.2, le=2.4),
     max_suggestions: int = Query(4, ge=1, le=8),
     mode: Literal["db","open","rag","hybrid"] = Query("rag"),
-    # Präferenzen (leichtgewichtige Übergabe per Query; alternativ /profile persistieren):
     veggie: Optional[bool] = None,
     vegan: Optional[bool] = None,
     no_pork: Optional[bool] = None,
@@ -525,25 +710,64 @@ def recommendations(
     cuisine_bias: Optional[str] = Query(None, description="Komma-getrennt, z.B. de,med,asian"),
     session: Session = Depends(get_session),
 ):
-    # 1) Gaps
     gaps_resp = gaps(day=day, body_weight_kg=body_weight_kg, goal=goal, protein_g_per_kg=protein_g_per_kg, session=session)
     if not gaps_resp.remaining:
-        raise HTTPException(status_code=400, detail="Keine offenen Lücken – Ziel bereits erreicht.")
+        raise HTTPException(status_code=400, detail="Keine offenen Luecken - Ziel bereits erreicht.")
     remaining = gaps_resp.remaining
 
     prefs = Prefs(
-        veggie=veggie, vegan=vegan, no_pork=no_pork, lactose_free=lactose_free,
+        veggie=veggie,
+        vegan=vegan,
+        no_pork=no_pork,
+        lactose_free=lactose_free,
         gluten_free=gluten_free,
         allergens_avoid=[s.strip() for s in allergens_avoid.split(",")] if allergens_avoid else None,
         budget_level=budget_level,
         cuisine_bias=[s.strip() for s in cuisine_bias.split(",")] if cuisine_bias else None,
     )
 
-    # 2) Kandidaten (RAG / DB)
+    suggestions: List[Suggestion] = []
+    used_db = False
+    used_llm = False
+    used_fallback = False
+
+    mock_req = ComposeRequest(
+        message=f"Auto-Vorschlaege fuer {day}",
+        day=day,
+        body_weight_kg=body_weight_kg,
+        servings=1,
+        preferences=[],
+    )
+    library_constraints = {"max_kcal": remaining.kcal}
+    library_ideas = _recipes_matching_query(session, mock_req, prefs, library_constraints, limit=max_suggestions)
+    if library_ideas:
+        used_db = True
+        suggestions = _merge_suggestions([], _ideas_to_suggestions(library_ideas, source="db"))
+
+    def _fill_from_fallback(slots: int) -> None:
+        nonlocal suggestions, used_fallback
+        if slots <= 0:
+            return
+        fallback = _fallback_recommendations_from_foods(session, prefs, remaining, slots)
+        if fallback:
+            used_fallback = True
+            suggestions = _merge_suggestions(suggestions, fallback)
+
+    remaining_slots = max(0, max_suggestions - len(suggestions))
+
+    if not SETTINGS.advisor_llm_enabled or mode == "db":
+        _fill_from_fallback(remaining_slots)
+        if not suggestions:
+            raise HTTPException(status_code=503, detail="Keine Vorschlaege verfuegbar.")
+        mode_used = "db"
+        if used_fallback and used_db:
+            mode_used = "hybrid"
+        return RecommendationsResponse(day=day, remaining=remaining, mode=mode_used, suggestions=suggestions[:max_suggestions])
+
     foods_brief: List[Dict[str, Any]] = []
     rag_ctx: List[Dict[str, Any]] = []
 
-    if mode in ("db", "hybrid"):
+    if mode in ("db", "hybrid", "rag"):
         foods = _apply_prefs_filter_foods(_food_list_for_prompt(session, top_n=48), prefs)
         foods_brief = [
             {
@@ -552,52 +776,47 @@ def recommendations(
                 "protein_g_100g": float(getattr(f, "protein_g", 0) or 0),
                 "carbs_g_100g": float(getattr(f, "carbs_g", 0) or 0),
                 "fat_g_100g": float(getattr(f, "fat_g", 0) or 0),
-            } for f in foods
+            }
+            for f in foods
         ]
 
     if mode in ("rag", "hybrid"):
         rag_ctx = _retrieve_candidates(session, prefs, top_k=RAG_TOP_K)
 
-    # 3) Prompt (RAG-first)
     remaining_json = json.dumps(remaining.model_dump(), ensure_ascii=False)
     prefs_json = json.dumps(prefs.model_dump(), ensure_ascii=False)
 
     base_instructions = (
-        f"Erstelle {max_suggestions} alltagstaugliche Vorschlagskarten (1–3 Zutaten) in DE, "
-        "um die Rest-Makros möglichst gut zu treffen. "
-        "Gib NUR JSON im Format:\n"
-        "{\n  \"suggestions\": [\n    {\"name\":\"...\",\"items\":[{\"food\":\"...\",\"grams\":123}],"
-        " \"est_kcal\":..., \"est_protein_g\":..., \"est_carbs_g\":..., \"est_fat_g\":...}\n  ]\n}\n"
-        "Regeln: metrische Einheiten (g), realistische Mengen (50–400 g je Zutat), keine Erklärtexte außerhalb JSON, "
+        f"Erstelle {max_suggestions} alltagstaugliche Vorschlagskarten (1-3 Zutaten) in DE, "
+        "um die Rest-Makros moeglichst gut zu treffen. "
+        "Gib NUR JSON im Format:\n{\n  \"suggestions\": [\n    {\"name\":\"...\",\"items\":[{\"food\":\"...\",\"grams\":123}],\"est_kcal\":...,\"est_protein_g\":...,\"est_carbs_g\":...,\"est_fat_g\":...}\n  ]\n}"
+        "Regeln: metrische Einheiten (g), realistische Mengen (50-400 g je Zutat), keine Erklaertexte ausserhalb JSON, "
         "Protein priorisieren bei Unterdeckung, Kalorienziel respektieren."
     )
 
-    context_blocks = []
+    context_blocks: List[str] = []
     if rag_ctx:
         context_blocks.append("RAG_KANDIDATEN:\n" + json.dumps(rag_ctx, ensure_ascii=False))
     if foods_brief:
         context_blocks.append("FOODS_DB:\n" + json.dumps(foods_brief, ensure_ascii=False))
 
     context_str = "\n\n".join(context_blocks) if context_blocks else "KEIN_KONTEXT"
-
     prompt = (
         base_instructions
         + f"\n\nREMAINING:\n{remaining_json}\n\nPREFERENCES:\n{prefs_json}\n\nKONTEXT:\n{context_str}\n"
-        + ("Bevorzuge Kandidaten aus RAG_KANDIDATEN, verwende exakte Namen wenn vorhanden. "
-           "F�lle Makros pragmatisch (keine �berlangen Rezepte).")
+        + "Bevorzuge Kandidaten aus RAG_KANDIDATEN, verwende exakte Namen wenn vorhanden. "
+        + "Fuelle Makros pragmatisch (keine ueberlangen Rezepte)."
     )
 
-    suggestions: List[Suggestion] = []
+    llm_suggestions: List[Suggestion] = []
     try:
         raw = _ollama_generate(prompt, as_json=True)
         data = _parse_llm_json(raw)
-
         fb_names = {f["name"] for f in foods_brief} if foods_brief else set()
         rag_names = {c["name"] for c in rag_ctx} if rag_ctx else set()
-
-        for s in data.get("suggestions", []):
+        for entry in data.get("suggestions", []):
             items: List[SuggestionItem] = []
-            for it in s.get("items", []):
+            for it in entry.get("items", []):
                 try:
                     food_name = (it.get("food") or "").strip()
                     grams = float(it.get("grams", 0))
@@ -606,45 +825,54 @@ def recommendations(
                 if not food_name or grams <= 0:
                     continue
                 items.append(SuggestionItem(food=food_name, grams=grams))
-
             if not items:
                 continue
-
-            if any(it.food in rag_names for it in items):
-                src = "rag"
-            elif any(it.food in fb_names for it in items):
-                src = "db"
+            if any(i.food in rag_names for i in items):
+                origin = "rag"
+            elif any(i.food in fb_names for i in items):
+                origin = "db"
             else:
-                src = "llm"
-
-            suggestions.append(Suggestion(
-                name=s.get("name", "Vorschlag"),
+                origin = "llm"
+            llm_suggestions.append(Suggestion(
+                name=entry.get("name", "Vorschlag"),
                 items=items,
-                source=src,
-                est_kcal=s.get("est_kcal"),
-                est_protein_g=s.get("est_protein_g"),
-                est_carbs_g=s.get("est_carbs_g"),
-                est_fat_g=s.get("est_fat_g"),
+                source=origin,
+                est_kcal=entry.get("est_kcal"),
+                est_protein_g=entry.get("est_protein_g"),
+                est_carbs_g=entry.get("est_carbs_g"),
+                est_fat_g=entry.get("est_fat_g"),
             ))
-    except HTTPException as exc:
-        if exc.status_code != 503 or mode == "open":
-            raise
-        suggestions = _fallback_recommendations_from_foods(session, prefs, remaining, max_suggestions)
-    except Exception:
-        suggestions = _fallback_recommendations_from_foods(session, prefs, remaining, max_suggestions)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        print("[WARN] Empfehlungen LLM fehlgeschlagen:", exc)
+
+    if llm_suggestions:
+        used_llm = True
+        suggestions = _merge_suggestions(suggestions, llm_suggestions)
+
+    remaining_slots = max(0, max_suggestions - len(suggestions))
+    if remaining_slots > 0:
+        _fill_from_fallback(remaining_slots)
 
     if not suggestions:
-        raise HTTPException(status_code=500, detail="Keine verwertbaren Vorschläge erhalten.")
+        raise HTTPException(status_code=502, detail="Keine verwertbaren Vorschlaege gefunden.")
 
-    return RecommendationsResponse(day=day, remaining=remaining, mode=mode, suggestions=suggestions)
+    if used_llm and used_db:
+        mode_used = "hybrid"
+    elif used_llm:
+        mode_used = "rag" if mode in ("rag", "hybrid") else "open"
+    else:
+        mode_used = "db"
 
+    return RecommendationsResponse(day=day, remaining=remaining, mode=mode_used, suggestions=suggestions[:max_suggestions])
 # ============ NEU: Chat-Endpunkt im Advisor (wie ChatGPT) ============
 
 class ChatRequest(BaseModel):
     message: str = Field(..., description="Benutzereingabe (Frage/Aufgabe)")
     context: Optional[str] = Field(
         default=None,
-        description="Optional: zusätzlicher Kontext (z.B. Tagesdaten, Ziele, Präferenzen)."
+        description="Optional: zusätzlicher Kontext (z.B. Tagesdaten, Ziele, Praeferenzen)."
     )
     json_mode: bool = Field(False, description="Wenn true, bitte strikt JSON zurückgeben (z.B. für Tools).")
 
@@ -1054,23 +1282,45 @@ def compose(req: ComposeRequest, session: Session = Depends(get_session)):
     constraints = _constraints_from_context(session, req)
     prefs = _prefs_from_compose(req)
 
-    # Vorab: Wenn kein lokales LLM erreichbar ist, heuristischen Fallback versuchen
+    notes: List[str] = []
+    ideas: List[RecipeIdea] = []
+
+    library_ideas = _recipes_matching_query(session, req, prefs, constraints, limit=3)
+    if library_ideas:
+        notes.append("Rezepte aus der lokalen Bibliothek priorisiert.")
+        ideas = _merge_ideas(ideas, library_ideas)
+
+    required_slots = max(0, 3 - len(ideas))
+
+    def _fill_from_fallback() -> None:
+        fallback = _compose_fallback_ideas(session, req, constraints, prefs)
+        if fallback:
+            notes.append("Fallback-Vorschlaege aus lokalen Lebensmitteln.")
+            _persist_recipe_ideas(session, req, prefs, constraints, fallback, source="fallback")
+            nonlocal ideas, required_slots
+            ideas = _merge_ideas(ideas, fallback)
+            required_slots = max(0, 3 - len(ideas))
+
+    if not SETTINGS.advisor_llm_enabled:
+        if required_slots > 0:
+            _fill_from_fallback()
+        if not ideas:
+            return JSONResponse(
+                status_code=503,
+                content={"error": "no_ideas", "detail": "Keine passenden Rezepte gefunden."}
+            )
+        return ComposeResponse(constraints=constraints, ideas=ideas[:3], notes=notes)
+
     has_local_llm = bool(LLAMA_CPP_AVAILABLE and LLAMA_CPP_MODEL_PATH and os.path.exists(LLAMA_CPP_MODEL_PATH))
     if not has_local_llm and not _ollama_alive(timeout=2):
-        fallback_ideas = _compose_fallback_ideas(session, req, constraints, prefs)
-        if fallback_ideas:
-            return ComposeResponse(
-                constraints=constraints,
-                ideas=fallback_ideas,
-                notes=["Fallback-Modus: Vorschlaege aus lokaler Food-Datenbank, da kein LLM erreichbar war."]
+        if required_slots > 0:
+            _fill_from_fallback()
+        if not ideas:
+            return JSONResponse(
+                status_code=503,
+                content={"error": "llm_unavailable","detail": "Kein lokales LLM erreichbar und keine lokalen Rezept-Heuristiken verfuegbar. Bitte Ollama starten oder Food-Datenbank befüllen."}
             )
-        return JSONResponse(
-            status_code=503,
-            content={
-                "error": "llm_unavailable",
-                "detail": "Kein lokales LLM erreichbar und keine lokalen Rezept-Heuristiken verfuegbar. Bitte Ollama starten oder Food-Datenbank befuellen."
-            }
-        )
+        return ComposeResponse(constraints=constraints, ideas=ideas[:3], notes=notes)
 
     system = (
         "Du bist ein praeziser deutschsprachiger Ernaehrungscoach. "
@@ -1079,90 +1329,103 @@ def compose(req: ComposeRequest, session: Session = Depends(get_session)):
         "Antworte ausschliesslich als JSON in dem angegebenen Format."
     )
     prefs_payload = prefs.model_dump(exclude_none=True)
-    user = f"""
-Nutzeranfrage: {req.message}
-Servings: {req.servings}
-Praeferenzen: {json.dumps(prefs_payload, ensure_ascii=False) if prefs_payload else "keine"}
-Constraints: {json.dumps(constraints, ensure_ascii=False)}
+    preferences_str = json.dumps(prefs_payload, ensure_ascii=False) if prefs_payload else "keine"
+    constraints_str = json.dumps(constraints, ensure_ascii=False)
+    user_template = """
+Nutzeranfrage: {message}
+Servings: {servings}
+Praeferenzen: {preferences}
+Constraints: {constraints}
 JSON-Format:
 {{
-  "ideas": [
+  \"ideas\": [
     {{
-      "title": "...",
-      "time_minutes": 20,
-      "difficulty": "easy",
-      "ingredients": [{{"name":"...", "grams":120}}, ...],
-      "instructions": ["Schritt 1 ...","Schritt 2 ..."],
-      "macros": {{"kcal": ..., "protein_g": ..., "carbs_g": ..., "fat_g": ...}},
-      "tags": ["proteinreich","unter_800_kcal"]
+      \"title\": \"...\",
+      \"time_minutes\": 20,
+      \"difficulty\": \"easy\",
+      \"ingredients\": [{{\"name\":\"...\", \"grams\":120}}, ...],
+      \"instructions\": [\"Schritt 1 ...\",\"Schritt 2 ...\"],
+      \"macros\": {{\"kcal\": ..., \"protein_g\": ..., \"carbs_g\": ..., \"fat_g\": ...}},
+      \"tags\": [\"proteinreich\",\"unter_800_kcal\"]
     }},
     ...
   ]
 }}
 Regeln: metrisch, 50-400 g/Zutat, pro Portion <= max_kcal falls gesetzt. Keine Erklaertexte ausserhalb des JSON.
 """
-
-    # ---- LLM call + JSON-Parsing robust ----
+    user = user_template.format(
+        message=req.message,
+        servings=req.servings,
+        preferences=preferences_str,
+        constraints=constraints_str,
+    )
     try:
-        try:
-            # Preferred: /api/chat mit sauberem JSON (falls utils vorhanden)
-            from app.utils.llm import llm_generate_json  # optional
-            raw_ideas = llm_generate_json(system, user, model=OLLAMA_MODEL,
-                                          endpoint=f"http://{OLLAMA_HOST}:{OLLAMA_PORT}",
-                                          json_root="ideas")
-        except Exception:
-            # Fallback: /api/generate format='json'
-            raw = _ollama_generate(f"{system}\n\n{user}", as_json=True, timeout=OLLAMA_TIMEOUT)
-            # Versuch JSON parsen (mit deinem Helfer)
-            data = _parse_llm_json(raw)
-            raw_ideas = data.get("ideas", [])
+        from app.utils.llm import llm_generate_json
+        raw_ideas = llm_generate_json(
+            system,
+            user,
+            model=OLLAMA_MODEL,
+            endpoint=f"http://{OLLAMA_HOST}:{OLLAMA_PORT}",
+            json_root="ideas",
+        )
+    except Exception:
+        raw = _ollama_generate(f"{system}\n\n{user}", as_json=True, timeout=OLLAMA_TIMEOUT)
+        data = _parse_llm_json(raw)
+        raw_ideas = data.get("ideas", [])
 
         if not isinstance(raw_ideas, list):
             raise ValueError("LLM lieferte kein ideas-Array.")
     except HTTPException:
         raise
-    except Exception as e:
-        # Immer JSON-Fehler liefern (nicht HTML)
-        return JSONResponse(
-            status_code=502,
-            content={"error": "compose_llm_failed", "detail": str(e)}
-        )
+    except Exception as exc:
+        notes.append(f"LLM-Fehler: {exc}")
+        if required_slots > 0:
+            _fill_from_fallback()
+        return ComposeResponse(constraints=constraints, ideas=ideas[:3], notes=notes)
 
-    # ---- Validieren & Makros ggf. präzisieren ----
-    ideas: List[RecipeIdea] = []
+    llm_ideas: List[RecipeIdea] = []
     try:
         from app.utils.validators import clamp, safe_float
     except Exception:
-        # fallback inline
         clamp = lambda x, lo, hi: max(lo, min(hi, x))
         def safe_float(x):
-            try: return float(x)
-            except: return 0.0
+            try:
+                return float(x)
+            except Exception:
+                return 0.0
 
-    for idead in raw_ideas:
+    for idea_dict in raw_ideas:
         try:
-            idea = RecipeIdea(**idead)
-        except Exception as e:
-            # eine kaputte Idee überspringen, aber nicht komplett fehlschlagen
+            idea = RecipeIdea(**idea_dict)
+        except Exception:
             continue
         if idea.macros:
-            idea.macros.kcal      = clamp(safe_float(idea.macros.kcal), 0, 1400)
+            idea.macros.kcal = clamp(safe_float(idea.macros.kcal), 0, 1400)
             idea.macros.protein_g = clamp(safe_float(idea.macros.protein_g), 0, 200)
-            idea.macros.carbs_g   = clamp(safe_float(idea.macros.carbs_g), 0, 250)
-            idea.macros.fat_g     = clamp(safe_float(idea.macros.fat_g), 0, 120)
+            idea.macros.carbs_g = clamp(safe_float(idea.macros.carbs_g), 0, 250)
+            idea.macros.fat_g = clamp(safe_float(idea.macros.fat_g), 0, 120)
         idea = _tighten_with_foods_db(session, idea)
-        ideas.append(idea)
+        llm_ideas.append(idea)
+
+    if llm_ideas:
+        notes.append("Ergaenzung durch lokales LLM.")
+        _persist_recipe_ideas(session, req, prefs, constraints, llm_ideas, source="llm")
+        ideas = _merge_ideas(ideas, llm_ideas)
+        required_slots = max(0, 3 - len(ideas))
+
+    if len(ideas) < 3:
+        _fill_from_fallback()
 
     if not ideas:
         return JSONResponse(
             status_code=502,
-            content={"error": "no_ideas", "detail": "LLM lieferte keine verwertbaren Ideen."}
+            content={"error": "no_ideas", "detail": "Keine verwertbaren Ideen generiert."}
         )
 
-    notes = []
     if constraints.get("max_kcal"):
         over = [i.title for i in ideas if i.macros and i.macros.kcal > constraints["max_kcal"]]
         if over:
             notes.append(f"Ideen > max_kcal ({constraints['max_kcal']}): {', '.join(over)}")
 
-    return ComposeResponse(constraints=constraints, ideas=ideas, notes=notes)
+    return ComposeResponse(constraints=constraints, ideas=ideas[:3], notes=notes)
+

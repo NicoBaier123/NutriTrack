@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     docs_url: str = "/docs"
     database_url: str = f"sqlite:///{(BACKEND_ROOT / 'nutritrack.db').as_posix()}"
     database_echo: bool = False
+    advisor_llm_enabled: bool = True
 
 
 @lru_cache
