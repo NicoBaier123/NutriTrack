@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -114,6 +114,77 @@ async def test_advisor_compose_persists_llm_recipes(client, db_session, monkeypa
     assert recipes and recipes[0].source == "llm"
     ingredients = db_session.exec(select(RecipeItem).where(RecipeItem.recipe_id == recipes[0].id)).all()
     assert ingredients
+
+
+@pytest.mark.asyncio
+async def test_advisor_compose_prompt_allows_meal_logging(client, db_session, monkeypatch):
+    monkeypatch.setattr(advisor.SETTINGS, "advisor_llm_enabled", True)
+    monkeypatch.setattr(advisor, "_ollama_alive", lambda timeout=2: True)
+    monkeypatch.setattr(advisor, "LLAMA_CPP_AVAILABLE", False)
+    monkeypatch.setattr(advisor, "LLAMA_CPP_MODEL_PATH", None)
+    foods = _seed_foods(db_session)
+
+    target_day = date.today() - timedelta(days=365)
+
+    def fake_llm_generate_json(*_args, **_kwargs):
+        return [
+            {
+                "title": "Macro Balancing Dinner",
+                "time_minutes": 20,
+                "difficulty": "easy",
+                "ingredients": [
+                    {"name": foods[0].name, "grams": 200},
+                    {"name": foods[1].name, "grams": 50},
+                    {"name": foods[2].name, "grams": 120},
+                ],
+                "instructions": [
+                    "Combine all ingredients in a bowl.",
+                    "Stir until evenly mixed and serve immediately.",
+                ],
+                "macros": {"kcal": 600, "protein_g": 45, "carbs_g": 70, "fat_g": 15},
+                "tags": ["llm", "dinner"],
+            }
+        ]
+
+    monkeypatch.setattr(llm_utils, "llm_generate_json", fake_llm_generate_json)
+
+    compose_response = await client.post(
+        "/advisor/compose",
+        json={
+            "message": "I ate one portion (250grams) of rice and tomato sauce with 2 eggs. "
+                       "Give me a dinner that will fill up my daily nutrition values",
+            "day": target_day.isoformat(),
+            "servings": 1,
+            "body_weight_kg": 75,
+        },
+    )
+    assert compose_response.status_code == 200, compose_response.text
+    payload = compose_response.json()
+    assert payload["ideas"], payload
+
+    idea = payload["ideas"][0]
+    assert idea["title"] == "Macro Balancing Dinner"
+    ingredients = idea["ingredients"]
+    assert ingredients, "LLM response did not include ingredients"
+
+    for ingredient in ingredients:
+        grams = ingredient.get("grams")
+        assert grams and grams > 0, f"Ingredient without grams: {ingredient}"
+        save_resp = await client.post(
+            "/meals/item",
+            params={
+                "day": target_day.isoformat(),
+                "food_name": ingredient["name"],
+                "grams": grams,
+            },
+        )
+        assert save_resp.status_code == 201, save_resp.text
+
+    day_log = await client.get("/meals/day", params={"day": target_day.isoformat()})
+    assert day_log.status_code == 200, day_log.text
+    day_payload = day_log.json()
+    assert len(day_payload["items"]) == len(ingredients)
+    assert day_payload["totals"]["kcal"] > 0
 
 
 @pytest.mark.asyncio

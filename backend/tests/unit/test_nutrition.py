@@ -35,3 +35,14 @@ def test_sum_and_round_macros():
     assert r.protein_g == exp.protein_g
     assert r.carbs_g == exp.carbs_g
     assert r.fat_g == exp.fat_g
+
+
+def test_macros_to_dict_casts_numbers():
+    m = Macros(kcal=123.456, protein_g="30", carbs_g=0, fat_g=7)
+    data = m.to_dict()
+    assert data == {
+        "kcal": 123.456,
+        "protein_g": 30.0,
+        "carbs_g": 0.0,
+        "fat_g": 7.0,
+    }
