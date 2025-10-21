@@ -11,7 +11,7 @@ import subprocess
 from typing import Tuple
 from fastapi.responses import HTMLResponse
 from fastapi.responses import JSONResponse
-
+import json, http.client, os
 
 from app.core.config import get_settings
 from app.db import get_session
@@ -79,7 +79,7 @@ OLLAMA_HOST = os.getenv("OLLAMA_HOST", "127.0.0.1")
 OLLAMA_PORT = int(os.getenv("OLLAMA_PORT", "11434"))
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1")
 # Kurzzeit-Timeouts, damit die UI schnell reagiert, wenn kein LLM läuft
-OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "10"))
+OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "100"))
 
 RAG_EMBED_URL = os.getenv("RAG_EMBED_URL")  # z.B. http://127.0.0.1:8001/embed
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "30"))
@@ -173,7 +173,9 @@ def build_chat_prompt(user_message: str, extra_context: Optional[str] = None) ->
     return f"{SYSTEM_PROMPT_CHAT}\n\n[Frage]\n{user_message}\n\n[Antwort]"
 
 
-def _ollama_generate(prompt: str, model: str = OLLAMA_MODEL, as_json: bool = False, timeout=60) -> str:
+from fastapi import HTTPException
+
+def _ollama_generate(prompt: str, model: str = OLLAMA_MODEL, as_json: bool = False, timeout=60) -> str | dict:
     conn = http.client.HTTPConnection(OLLAMA_HOST, OLLAMA_PORT, timeout=timeout)
     body = {"model": model, "prompt": prompt, "stream": False}
     if as_json:
@@ -183,9 +185,19 @@ def _ollama_generate(prompt: str, model: str = OLLAMA_MODEL, as_json: bool = Fal
     res = conn.getresponse()
     if res.status != 200:
         raise HTTPException(status_code=503, detail=f"Ollama error {res.status}")
-    data = json.loads(res.read())
-    return data.get("response", "")
+    outer = json.loads(res.read())  # {"response": "...", ...}
+    text = outer.get("response", "")
 
+    if as_json:
+        try:
+            return json.loads(text)  # <- hier soll das eigentliche, strukturierte JSON landen
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=503, detail={
+                "error": "llm_invalid_json",
+                "hint": "Ollama lieferte kein valides JSON im Compose-Mode.",
+                "sample": text[:400]
+            }) from e
+    return text
 
 def _ollama_alive(timeout: int = 2) -> bool:
     """Schneller Reachability-Check für Ollama HTTP API."""
