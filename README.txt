@@ -1,98 +1,43 @@
-NutriTrack – Intelligenter Ernährungs- & Fitness-Tracker mit KI-Unterstützung
+Projektüberblick
 
-Überblick
-NutriTrack ist ein KI-basiertes Ernährungssystem, das deine täglichen Mahlzeiten, Aktivitäten und Gesundheitsdaten automatisch analysiert.
-Es hilft dir, deine individuellen Ernährungsziele zu erreichen – egal ob Muskelaufbau, Fettverlust oder Gewichtserhalt.
+Lokal laufender FastAPI-Stack unter backend/src/app mit SQLite/SQLModel, konfiguriert über backend/src/app/core/config.py:1.
+API-Einstiegspunkt backend/src/app/main.py:1 bündelt Router für Gesundheit, Foods, Meals, Wearables, Advisor, Summary, Demo-UI, Lookup und optionale Speech/NLP-Ingest.
+Struktur & Schlüsselmodule
 
-Du kannst einfach ins Handy sprechen, und die App erkennt, was du gegessen hast, berechnet die Nährwerte und empfiehlt passende Mahlzeiten oder Supplements.
-Optional synchronisiert sich das System mit Strava oder deiner Fitnessuhr, um deine Aktivität und Kalorienbilanz dynamisch anzupassen.
+backend/src/app/core/
+config.py:1 lädt .env, definiert Settings (App-Metadaten, DB-URL, Advisor-LLM-Flag).
+database.py:1 initialisiert SQLModel-Engine, Session-Dependency und Tabellenaufbau.
+backend/src/app/models/ enthält SQLModel-Datenklassen (Foods, Meals, Wearables, optionale Recipes) für DB-Schema.
+backend/src/app/routers/
+health.py:1 liefert /health-Ping.
+foods.py:1 stellt /foods/search|detail für Lebensmittelbasis bereit.
+foods_lookup.py:1 bietet /foods/lookup|confirm gegen FoodData Central / OpenFoodFacts mit Synonympflege.
+meals.py:1 deckt CRUD/Reporting für tägliche Meal-Items (/meals/item|day|summary_by_food).
+meals_ingest.py:1 verarbeitet Batch-Ingest (/meals/ingest) mit Fuzzy-Matching & Pending-Speicher.
+wearables.py:1 verwaltet /wearables/daily (Upsert + Listing) zur Aktivitätsintegration.
+summary.py:1 erzeugt /summary/day|week mit Trendanalyse und Kalorienziel-Heuristik.
+advisor.py:1 bündelt Coach-Funktionen /advisor/gaps|recommendations|chat|compose, integriert lokale LLMs und Rezeptbibliothek.
+ingest.py:1 (optional) transkribiert Audio via faster-whisper und legt Meals über LLM-Parsing an (/ingest/voice_meal).
+demo_ui.py:1 rendert HTML-Demo (/demo).
+backend/src/app/utils/
+nutrition.py:1 Hilfsfunktionen zur Makroberechnung.
+llm.py:1 abstrahiert lokale LLM-Aufrufe (JSON-Parsing etc.).
+validators.py:1 enthält sichere Konvertierungen/Clamp-Logik für Advisor.
+backend/src/app/web/templates/demo.html:1 Single-Page-Demo für Compose-/Chat-Flows und Meal-Übernahme.
+backend/scripts/
+seed_smoothie_bowls.py:1 füllt Foods/Recipes per Script (Nutzung über aktivierte venv).
+backend/tests/unit/test_llm_utils.py:1 prüft JSON-Ausgabe/Parsing des LLM-Helfers.
+Infrastruktur: .vscode/launch.json:1 startet uvicorn samt venv-Setup; Datenbasis backend/data/foods.csv.
+Wichtige Schnittstellen
 
-Hauptfunktionen
+REST-Endpoints via FastAPI (obige Router) mit SQLModel-Sessions (get_session aus database.py).
+Lokales LLM: Standard-Ollama (HTTP oder CLI) plus optionales llama.cpp-In-Process (advisor.py:120 ff), konfigurierbar über .env.
+Speech-Ingest: ingest.py nutzt faster_whisper.WhisperModel, benötigt Zusatzpaket.
+Externe Daten: USDA FoodData Central (API-Key) und OpenFoodFacts in foods_lookup.py.
+Demo-Frontend kommuniziert per Fetch mit /advisor/compose, /advisor/chat, /meals/item, /summary/day etc.
+Statushinweis
 
-Sprachbasierte Ernährungserfassung (Speech-to-Text und KI-Parsing)
-
-Automatische Nährwertberechnung über eine Food-Datenbank
-
-Dynamische Zielanpassung je nach Aktivität (z. B. Strava, Fitnessuhr)
-
-Empfehlungen für Makro- und Mikronährstoffe
-
-Personalisierte Vorschläge nach Präferenzen und Zielen
-
-Optionale Bluttest-Analyse für individuelle Ernährungsempfehlungen
-
-Lokale Ausführung mit Ollama und FastAPI
-
-Projektstruktur
-
-NutriTrack/
-│
-├── backend/ FastAPI-Server (Python, Datenbank, Logik)
-│ ├── app/
-│ │ ├── main.py
-│ │ ├── db.py
-│ │ ├── routers/
-│ │ └── models/
-│ └── scripts/
-│
-├── mobile/ React Native / Expo App (Frontend)
-│
-├── data/ CSV-Daten (Foods, Nutrients, Recipes)
-│
-├── infra/ Docker, Deployment, Configs
-│
-└── README.md
-
-Setup-Schritte
-
-Git und Python vorbereiten
-Stelle sicher, dass Git und Python 3.11 oder höher installiert sind.
-Prüfen:
-git --version
-python --version
-
-Virtuelle Umgebung und Abhängigkeiten
-cd backend
-python -m venv .venv
-.venv\Scripts\activate (Windows)
-oder
-source .venv/bin/activate (macOS/Linux)
-pip install fastapi uvicorn[standard]
-
-Server starten
-uvicorn app.main:app --reload
-Browser öffnen: http://127.0.0.1:8000/health
-
-Erwartete Ausgabe: {"ok": true, "message": "NutriTrack backend läuft!"}
-
-Daten hinzufügen
-Später werden Food-CSV-Dateien, Rezepte und Wearable-Daten importiert.
-Beispiele: data/foods.csv, data/nutrients.csv, data/recipes.csv
-
-Geplante Module
-
-Database & Models: Foods, Nutrients, Wearables, Biomarker
-
-Voice Input: Speech-to-Text (Whisper / Faster-Whisper)
-
-AI Parser: LLM via Ollama (Llama 3.1)
-
-Recommendation Engine: Zielgesteuerte Vorschläge
-
-Integration: Strava, Apple Health, Google Fit, Garmin
-
-Tech-Stack
-Backend: Python, FastAPI
-KI-Modelle: Llama 3.1 (Ollama), Whisper
-Frontend: React Native / Expo
-Datenbank: SQLite → PostgreSQL
-Integration: Strava API, HealthKit, Health Connect
-Deployment: Docker Compose
-
-Projektziel
-Ein funktionsfähiger Prototyp, der Sprach-Logging, Nährwertanalyse und smarte Empfehlungen in Echtzeit ermöglicht – komplett lokal lauffähig.
-
-Autor
-Name: [dein Name]
-Studiengang: Duale Angewandte Informatik
-Projektmodul: KI-Systemintegration & Sprachmodelle
+Backend funktionsfähig, SQLite-Datenbank inklusive automatischem Schemaaufbau.
+Advisor & Compose laufen mit heuristischem Fallback; LLAMA/Ollama optional.
+Wearable-Upserts vorhanden, externe Integrationen noch manuell.
+Voice-Ingest und RAG in experimentellem Stadium; vollständiges Frontend fehlt.

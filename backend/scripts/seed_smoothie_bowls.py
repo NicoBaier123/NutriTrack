@@ -3,7 +3,9 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from tkinter.font import names
 from typing import Sequence
+from unittest import result
 
 from sqlmodel import Session, select
 
@@ -541,7 +543,9 @@ if MISSING_SEED_FOODS:
 
 
 def load_foods(session: Session) -> int:
-    existing = {name.lower() for (name,) in session.exec(select(Food.name))}
+    result = session.exec(select(Food.name))          # -> ScalarResult[str]
+    names = result.all()                              # Liste[str]
+    existing = { (name or "").lower() for name in names if name }
     new_foods = [
         Food(
             name=seed.name,

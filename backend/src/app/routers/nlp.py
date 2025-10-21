@@ -2,6 +2,8 @@ from __future__ import annotations
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 from pydantic import BaseModel, Field
 import http.client, json, os, tempfile
+from fastapi import Request
+
 
 router = APIRouter(prefix="/nlp", tags=["nlp"])
 
@@ -104,41 +106,6 @@ def ollama_generate_json(prompt: str, model: str = OLLAMA_MODEL) -> dict:
 
 
 # =========================
-# Transcribe (Audio -> Text)
-# =========================
-
-@router.post("/transcribe", response_model=TranscribeResp)
-async def transcribe(file: UploadFile = File(...)):
-    """
-    Lokale Transkription via Faster-Whisper (empfohlen). Falls das Paket fehlt, sauberer Fehler.
-    """
-    try:
-        from faster_whisper import WhisperModel
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Faster-Whisper nicht installiert: {e}")
-
-    # Datei temporär speichern
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-        data = await file.read()
-        tmp.write(data)
-        tmp.flush()
-        path = tmp.name
-
-    try:
-        model_name = os.getenv("WHISPER_MODEL", "small")
-        device = os.getenv("WHISPER_DEVICE", "auto")
-        model = WhisperModel(model_name, device=device, compute_type="int8")
-        segments, info = model.transcribe(path, vad_filter=True, beam_size=1, language="de")
-        text = " ".join([s.text.strip() for s in segments]).strip()
-        return TranscribeResp(text=text, language=getattr(info, "language", None))
-    finally:
-        try:
-            os.remove(path)
-        except Exception:
-            pass
-
-
-# =========================
 # Parse (Text -> Items)
 # =========================
 
@@ -205,8 +172,10 @@ async def parse_meal_audio(file: UploadFile = File(...)):
 
     return ParseFromAudioResp(text=tr.text, parsed=parsed)
 
-# ... oben in nlp.py zusätzlich importieren:
-from fastapi import Request
+
+# =========================
+# Transcribe (Audio -> Text)
+# =========================
 
 @router.post("/transcribe", response_model=TranscribeResp)
 async def transcribe(request: Request, file: UploadFile | None = File(None)):
