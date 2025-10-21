@@ -1,0 +1,37 @@
+@startuml
+skinparam monochrome true
+skinparam defaultFontName Courier
+skinparam defaultFontSize 12
+
+rectangle "Frontend / Client" as FE
+rectangle "FastAPI Backend" as API
+
+rectangle "RAG-Controller" as RAG
+rectangle "Retriever\n(Vektorindex + Metadaten)" as RET
+rectangle "Llama-Modell\n(Generation)" as LLM
+rectangle "Portionierungslogik\n(An Ziel & Tagesbilanz)" as PORT
+rectangle "Zutatenanalyse\n(Tokenisierung/NER der Zutatenliste)" as ZUT
+
+rectangle "SQLite: nutritrack.db" as DB
+rectangle "Cache: Foods\n(Nährwerte pro Zutat)" as CACHE
+rectangle "Rezepte + Ingredients\n(own schema)" as REC
+
+rectangle "FDC / OFF API\n(Nährwertquellen)" as FDC
+
+FE --> API
+API --> RAG
+RAG --> RET
+RAG --> LLM
+RET --> REC
+LLM --> ZUT
+RET --> ZUT
+ZUT --> CACHE
+CACHE --> DB
+ZUT --> FDC
+FDC --> CACHE
+CACHE --> PORT
+REC --> PORT
+PORT --> API
+API --> FE
+
+@enduml

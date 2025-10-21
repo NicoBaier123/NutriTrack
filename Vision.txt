@@ -1,0 +1,24 @@
+Vision von NutriTrack
+
+NutriTrack soll ein intelligenter Ernährungsassistent sein, der individuelle Mahlzeiten und Rezepte automatisch plant.
+
+Das System kombiniert:
+
+RAG (Retrieval-Augmented Generation) –
+Zuerst werden bestehende Rezepte aus deiner eigenen Datenbank durchsucht.
+Wenn kein passendes Rezept gefunden wird, erstellt ein Llama-Modell selbst neue Vorschläge.
+
+Externe Nährwertdaten –
+Die Zutaten-Informationen (Kalorien, Proteine usw.) werden live von der FDC-API abgerufen
+und in deiner lokalen Datenbank zwischengespeichert (Cache), damit sie später schnell abrufbar sind.
+
+Personalisierte Ernährung –
+Llama berücksichtigt automatisch, was der Nutzer bereits gegessen hat,
+und generiert abwechslungsreiche, nährwertoptimierte Portionen,
+die zu seinen aktuellen Zielen (Muskelaufbau, Abnehmen etc.) passen.
+
+Kernprinzip
+
+Erst suchen, dann generieren —
+alle Nährwerte verlässlich aus echten Quellen,
+personalisiert durch KI, die versteht, was du brauchst und was du schon hattest.

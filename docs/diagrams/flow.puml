@@ -1,0 +1,33 @@
+@startuml
+skinparam monochrome true
+skinparam defaultFontName Courier
+skinparam defaultFontSize 12
+
+start
+:User-Request (z.B. "Dinner ~600 kcal, vegetarisch");
+:API → RAG-Controller;
+
+if ("Passendes Rezept in lokaler DB?") then (Ja)
+  :Retriever liefert Rezept + Zutaten;
+else (Nein)
+  :Llama generiert Rezeptvorschlag;
+endif
+
+:Zutatenliste extrahieren;
+
+repeat
+  :Nächste Zutat;
+  if ("Nährwerte im Cache (DB)?") then (Ja)
+    :Lese Nährwerte aus CACHE;
+  else (Nein)
+    :FDC/OFF API call;
+    :Speichere Ergebnis in CACHE (DB);
+  endif
+repeat while (weitere Zutaten?)
+
+:Makros aggregieren (kcal, P/C/F);
+:Portionierungslogik\n→ an Ziel & Tagesbilanz anpassen;
+:Resultat formatieren (Rezept + Nährwerte + Hinweise);
+
+stop
+@enduml
