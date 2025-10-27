@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_ROOT = Path(__file__).resolve().parents[3]
 ENV_PATH = BACKEND_ROOT / ".env"
+RAG_EMBED_URL = "http://localhost:8001/embed"
 
 # Load environment variables as early as possible so Settings picks them up.
 if ENV_PATH.exists():

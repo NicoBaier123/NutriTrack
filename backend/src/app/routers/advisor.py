@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import selectinload
 from sqlmodel import Session, select
-import http.client, json, os, math
+import http.client, json, os, math, re
 import subprocess
 from typing import Tuple
 from fastapi.responses import HTMLResponse
@@ -83,6 +83,7 @@ OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "100"))
 
 RAG_EMBED_URL = os.getenv("RAG_EMBED_URL")  # z.B. http://127.0.0.1:8001/embed
 RAG_TOP_K = int(os.getenv("RAG_TOP_K", "30"))
+RAG_MAX_RECIPES = int(os.getenv("RAG_MAX_RECIPES", "0"))  # 0 => keine Limitierung
 
 # NEU: Optionaler In-Process LLM (llama-cpp), sonst Fallback auf Ollama HTTP oder CLI.
 LLAMA_CPP_AVAILABLE = False
@@ -549,6 +550,10 @@ def _recipe_to_idea(recipe: "Recipe") -> "RecipeIdea":
 
     tags = [t.strip() for t in (recipe.tags or "").split(",") if t.strip()]
 
+    allowed_sources = {"rag", "llm", "fallback", "db"}
+    raw_source = (recipe.source or "db").lower()
+    source = raw_source if raw_source in allowed_sources else "db"
+
     return RecipeIdea(
         title=recipe.title,
         time_minutes=recipe.time_minutes,
@@ -559,14 +564,16 @@ def _recipe_to_idea(recipe: "Recipe") -> "RecipeIdea":
         instructions=list(recipe.instructions_json or []),
         macros=macros,
         tags=tags,
+        source=source,
     )
 
 
 def _idea_to_suggestion(idea: "RecipeIdea", source: str = "db") -> Suggestion:
+    effective_source = getattr(idea, "source", None) or source
     return Suggestion(
         name=idea.title,
         items=[SuggestionItem(food=ing.name, grams=ing.grams or 0.0) for ing in idea.ingredients],
-        source=source,
+        source=effective_source,
         est_kcal=idea.macros.kcal if idea.macros else None,
         est_protein_g=idea.macros.protein_g if idea.macros else None,
         est_carbs_g=idea.macros.carbs_g if idea.macros else None,
@@ -589,52 +596,233 @@ def _merge_suggestions(primary: List[Suggestion], secondary: List[Suggestion]) -
     return merged
 
 
+def _tokenize(text: str) -> List[str]:
+    if not text:
+        return []
+    return re.findall(r"[a-z0-9äöüß]+", text.lower())
+    
+
+def _infer_required_ingredients(session: Session, message: Optional[str]) -> List[str]:
+    if not message:
+        return []
+    message_tokens = set(_tokenize(message))
+    if not message_tokens:
+        return []
+    names = session.exec(select(Food.name)).all()
+    matches: List[str] = []
+    seen: set[str] = set()
+    for raw_name in names:
+        name = (raw_name or "").strip()
+        if not name:
+            continue
+        name_tokens = set(_tokenize(name))
+        if not name_tokens or not name_tokens <= message_tokens:
+            continue
+        key = name.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        matches.append(name)
+    return matches
+
+
+def _keyword_overlap(query_tokens: List[str], doc_tokens: List[str]) -> float:
+    if not query_tokens or not doc_tokens:
+        return 0.0
+    qs, ds = set(query_tokens), set(doc_tokens)
+    return len(qs & ds) / max(len(qs), 1)
+
+
+def _ingredient_overlap_score(recipe: "Recipe", query_text: str) -> float:
+    if not query_text:
+        return 0.0
+    query_tokens = set(_tokenize(query_text))
+    if not query_tokens:
+        return 0.0
+    ingredient_tokens: set[str] = set()
+    for ingredient in getattr(recipe, "ingredients", []) or []:
+        ingredient_tokens.update(_tokenize(ingredient.name or ""))
+    if not ingredient_tokens:
+        return 0.0
+    return len(query_tokens & ingredient_tokens) / max(len(query_tokens), 1)
+
+
+def _nutrition_fit_score(recipe: "Recipe", constraints: Dict[str, Any]) -> float:
+    if not constraints or getattr(recipe, "macros_kcal", None) is None:
+        return 0.0
+    kcal = float(recipe.macros_kcal or 0.0)
+    remaining = constraints.get("remaining_kcal")
+    max_kcal = constraints.get("max_kcal")
+    score = 0.0
+    if remaining is not None:
+        target = max(remaining, 0.0)
+        denom = max(target, 1.0)
+        score += max(0.0, 1.0 - abs(kcal - target) / denom)
+    if max_kcal is not None:
+        if kcal <= max_kcal:
+            score += 0.3
+        else:
+            score -= min(1.0, (kcal - max_kcal) / max(max_kcal, 1.0))
+    return score
+
+
+def _recipe_document(recipe: "Recipe") -> str:
+    parts: List[str] = []
+    parts.append(recipe.title or "")
+    parts.append(recipe.tags or "")
+    if recipe.instructions_json:
+        parts.extend(recipe.instructions_json)
+    for ing in getattr(recipe, "ingredients", []) or []:
+        parts.append(f"{ing.name} {ing.grams or ''}".strip())
+    macro_bits: List[str] = []
+    if recipe.macros_kcal:
+        macro_bits.append(f"{recipe.macros_kcal} kcal")
+    if recipe.macros_protein_g:
+        macro_bits.append(f"{recipe.macros_protein_g} g protein")
+    if recipe.macros_carbs_g:
+        macro_bits.append(f"{recipe.macros_carbs_g} g carbs")
+    if recipe.macros_fat_g:
+        macro_bits.append(f"{recipe.macros_fat_g} g fat")
+    parts.extend(macro_bits)
+    return " ".join(part for part in parts if part).strip()
+
+
+def _recipe_has_ingredients(recipe: "Recipe", required_names: List[str]) -> bool:
+    if not required_names:
+        return True
+    available = {
+        (getattr(ing, "name", "") or "").strip().lower()
+        for ing in getattr(recipe, "ingredients", []) or []
+        if getattr(ing, "name", None)
+    }
+    if not available:
+        return False
+    return all(any(req == name for name in available) for req in required_names)
+
+
+def _build_query_text(req: "ComposeRequest", prefs: Prefs, constraints: Dict[str, Any]) -> str:
+    bits = [
+        req.message or "",
+        f"servings {req.servings}",
+    ]
+    if req.preferences:
+        bits.append(" ".join(req.preferences))
+    pref_fields = prefs.model_dump(exclude_none=True)
+    if pref_fields:
+        bits.append(json.dumps(pref_fields, ensure_ascii=False))
+    if constraints:
+        bits.append(json.dumps({k: v for k, v in constraints.items() if v is not None}, ensure_ascii=False))
+    return " ".join(bits)
+
+
+def _recipe_matches_preferences(recipe: "Recipe", prefs: Prefs, constraints: Dict[str, Any]) -> bool:
+    tags = [t.strip().lower() for t in (recipe.tags or "").split(",") if t.strip()]
+    if prefs.vegan and "vegan" not in tags:
+        return False
+    if prefs.veggie and not any(t in tags for t in ("vegetarisch", "vegetarian", "veggie", "vegan")):
+        return False
+    if prefs.no_pork and any("pork" in t or "schwein" in t for t in tags):
+        return False
+    if prefs.cuisine_bias and tags:
+        if not any(bias.lower() in tags for bias in prefs.cuisine_bias):
+            return False
+    max_kcal = constraints.get("max_kcal")
+    if max_kcal is not None and recipe.macros_kcal is not None and recipe.macros_kcal > max_kcal:
+        return False
+    return True
+
+
 def _recipes_matching_query(
     session: Session,
     req: "ComposeRequest",
     prefs: Prefs,
     constraints: Dict[str, Any],
     limit: int,
-) -> List["RecipeIdea"]:
+    required_ingredients: Optional[List[str]] = None,
+) -> Tuple[List["RecipeIdea"], Dict[str, Any]]:
+    meta = {
+        "reason": None,
+        "used_embeddings": False,
+        "candidates_total": 0,
+        "candidates_filtered": 0,
+    }
     if not HAS_RECIPES:
-        return []
+        meta["reason"] = "recipes_table_missing"
+        return [], meta
 
     stmt = (
         select(Recipe)
         .options(selectinload(Recipe.ingredients))
         .order_by(Recipe.created_at.desc())
-        .limit(limit * 3)
     )
+    if RAG_MAX_RECIPES > 0:
+        stmt = stmt.limit(RAG_MAX_RECIPES)
     recipes = session.exec(stmt).all()
-    ideas: List[RecipeIdea] = []
-    hint = (req.message or "").lower()
-    max_kcal = constraints.get("max_kcal")
+    meta["candidates_total"] = len(recipes)
 
+    req_lower = [name.strip().lower() for name in (required_ingredients or []) if name]
+    filtered: List[Recipe] = []
     for recipe in recipes:
-        tags = [t.strip().lower() for t in (recipe.tags or "").split(",") if t.strip()]
+        if not _recipe_matches_preferences(recipe, prefs, constraints):
+            continue
+        if req_lower and not _recipe_has_ingredients(recipe, req_lower):
+            continue
+        filtered.append(recipe)
+    meta["candidates_filtered"] = len(filtered)
 
-        if prefs.vegan and "vegan" not in tags:
-            continue
-        if prefs.veggie and not any(t in tags for t in ("vegetarisch", "vegetarian", "veggie", "vegan")):
-            continue
-        if prefs.no_pork and "pork" in tags:
-            continue
-        if prefs.cuisine_bias and tags and not any(bias.lower() in tags for bias in prefs.cuisine_bias):
-            continue
-        if max_kcal is not None and recipe.macros_kcal is not None and recipe.macros_kcal > max_kcal:
-            continue
+    if req_lower and not filtered:
+        meta["reason"] = "required_ingredients_missing"
+        meta["required_ingredients"] = req_lower
+        return [], meta
 
+    if not filtered:
+        meta["reason"] = "no_recipe_matching_preferences"
+        return [], meta
+
+    docs = [_recipe_document(recipe) for recipe in filtered]
+    query_text = _build_query_text(req, prefs, constraints)
+
+    vectors = _embed_texts([query_text] + docs) if docs else None
+    scored: List[Tuple[float, Recipe]] = []
+
+    if vectors and len(vectors) == len(docs) + 1:
+        meta["used_embeddings"] = True
+        query_vec = vectors[0]
+        for recipe, doc_vec in zip(filtered, vectors[1:]):
+            score = _cosine(query_vec, doc_vec)
+            score += _nutrition_fit_score(recipe, constraints)
+            score += _ingredient_overlap_score(recipe, req.message or "")
+            scored.append((score, recipe))
+    else:
+        if vectors and len(vectors) != len(docs) + 1:
+            meta["reason"] = "embedding_size_mismatch"
+        query_tokens = _tokenize(query_text)
+        for recipe, doc_text in zip(filtered, docs):
+            doc_tokens = _tokenize(doc_text)
+            score = _keyword_overlap(query_tokens, doc_tokens)
+            score += _nutrition_fit_score(recipe, constraints)
+            score += _ingredient_overlap_score(recipe, req.message or "")
+            scored.append((score, recipe))
+        if vectors is None:
+            meta["reason"] = meta["reason"] or "embeddings_unavailable"
+
+    scored.sort(key=lambda item: item[0], reverse=True)
+    ideas: List[RecipeIdea] = []
+    for score, recipe in scored[:limit]:
         idea = _recipe_to_idea(recipe)
-
-        if hint and not any(word in (recipe.title or "").lower() for word in hint.split()):
-            if not any(word in tags for word in hint.split()):
-                continue
-
+        idea.source = "rag"
+        if "rag" not in idea.tags:
+            idea.tags.append("rag")
+        idea = _tighten_with_foods_db(session, idea)
+        idea = _respect_max_kcal(session, idea, constraints.get("max_kcal"))
         ideas.append(idea)
-        if len(ideas) >= limit:
-            break
 
-    return ideas
+    if not ideas:
+        meta["reason"] = meta["reason"] or "no_ranked_hits"
+    elif len(ideas) < limit and meta["reason"] is None:
+        meta["reason"] = "insufficient_hits"
+
+    return ideas, meta
 
 def _parse_llm_json(raw: str) -> Dict[str, Any]:
     start, end = raw.find("{"), raw.rfind("}")
@@ -751,7 +939,7 @@ def recommendations(
         preferences=[],
     )
     library_constraints = {"max_kcal": remaining.kcal}
-    library_ideas = _recipes_matching_query(session, mock_req, prefs, library_constraints, limit=max_suggestions)
+    library_ideas, _ = _recipes_matching_query(session, mock_req, prefs, library_constraints, limit=max_suggestions)
     if library_ideas:
         used_db = True
         suggestions = _merge_suggestions([], _ideas_to_suggestions(library_ideas, source="db"))
@@ -940,6 +1128,7 @@ class RecipeIdea(BaseModel):
     instructions: List[str]
     macros: Optional[Macro] = None
     tags: List[str] = []
+    source: Literal["rag", "llm", "fallback", "db"] = "rag"
 
 class ComposeRequest(BaseModel):
     message: str = Field(..., description="Freitext: z.B. 'proteinreiches Abendessen <800 kcal, vegetarisch'")
@@ -1296,47 +1485,80 @@ def compose(req: ComposeRequest, session: Session = Depends(get_session)):
 
     notes: List[str] = []
     ideas: List[RecipeIdea] = []
+    required_ingredients = _infer_required_ingredients(session, req.message)
+    if required_ingredients:
+        notes.append("Filter: Zutaten " + ", ".join(required_ingredients))
 
-    library_ideas = _recipes_matching_query(session, req, prefs, constraints, limit=3)
+    def _no_ideas_response(error: str, detail: str, status_code: int = 503) -> JSONResponse:
+        payload = {"error": error, "detail": detail}
+        if required_ingredients:
+            payload["required_ingredients"] = required_ingredients
+        code = 404 if required_ingredients else status_code
+        return JSONResponse(status_code=code, content=payload)
+
+    library_ideas, retrieval_meta = _recipes_matching_query(
+        session,
+        req,
+        prefs,
+        constraints,
+        limit=3,
+        required_ingredients=required_ingredients,
+    )
     if library_ideas:
-        notes.append("Rezepte aus der lokalen Bibliothek priorisiert.")
+        notes.append(
+            f"RAG fand {len(library_ideas)} passende Rezepte "
+            f"(Kandidaten: {retrieval_meta.get('candidates_filtered', 0)})."
+        )
         ideas = _merge_ideas(ideas, library_ideas)
+    else:
+        reason = retrieval_meta.get("reason") or "keine Übereinstimmungen"
+        notes.append(f"RAG ohne Treffer: {reason}.")
 
     required_slots = max(0, 3 - len(ideas))
+    if required_slots > 0:
+        reason = retrieval_meta.get("reason") or "zu wenige Treffer"
+        notes.append(f"{required_slots} weitere Idee(n) benötigt: {reason}.")
+    llm_slots = 0 if required_ingredients else min(required_slots, 2)
 
-    def _fill_from_fallback() -> None:
-        fallback = _compose_fallback_ideas(session, req, constraints, prefs)
+    def _fill_from_fallback(slots: int) -> None:
+        if required_ingredients or slots <= 0:
+            return
+        fallback = _compose_fallback_ideas(session, req, constraints, prefs)[:slots]
         if fallback:
             notes.append("Fallback-Vorschlaege aus lokalen Lebensmitteln.")
             _persist_recipe_ideas(session, req, prefs, constraints, fallback, source="fallback")
             nonlocal ideas, required_slots
+            for idea in fallback:
+                idea.source = "fallback"
             ideas = _merge_ideas(ideas, fallback)
             required_slots = max(0, 3 - len(ideas))
 
-    if not SETTINGS.advisor_llm_enabled:
+    if not SETTINGS.advisor_llm_enabled or llm_slots == 0:
         if required_slots > 0:
-            _fill_from_fallback()
+            _fill_from_fallback(required_slots)
         if not ideas:
-            return JSONResponse(
-                status_code=503,
-                content={"error": "no_ideas", "detail": "Keine passenden Rezepte gefunden."}
-            )
+            return _no_ideas_response("no_ideas", "Keine passenden Rezepte gefunden.")
         return ComposeResponse(constraints=constraints, ideas=ideas[:3], notes=notes)
 
     has_local_llm = bool(LLAMA_CPP_AVAILABLE and LLAMA_CPP_MODEL_PATH and os.path.exists(LLAMA_CPP_MODEL_PATH))
     if not has_local_llm and not _ollama_alive(timeout=2):
+        notes.append("LLM nicht erreichbar - lokale Fallbacks aktiv.")
         if required_slots > 0:
-            _fill_from_fallback()
+            _fill_from_fallback(required_slots)
         if not ideas:
-            return JSONResponse(
-                status_code=503,
-                content={"error": "llm_unavailable","detail": "Kein lokales LLM erreichbar und keine lokalen Rezept-Heuristiken verfuegbar. Bitte Ollama starten oder Food-Datenbank befüllen."}
-            )
+            payload = {
+                "error": "llm_unavailable",
+                "detail": "Kein lokales LLM erreichbar und keine lokalen Rezept-Heuristiken verfuegbar. Bitte Ollama starten oder Food-Datenbank befuellen.",
+            }
+            if required_ingredients:
+                payload["required_ingredients"] = required_ingredients
+            code = 404 if required_ingredients else 503
+            return JSONResponse(status_code=code, content=payload)
         return ComposeResponse(constraints=constraints, ideas=ideas[:3], notes=notes)
 
     system = (
         "Du bist ein praeziser deutschsprachiger Ernaehrungscoach. "
-        "Liefere 3 praktische Rezeptideen mit Zutaten (in g), klaren Schritten und geschaetzten Makros pro Portion. "
+        f"Liefere exakt {llm_slots} praktische Rezeptidee(n) mit Zutaten (in g), klaren Schritten und geschaetzten Makros pro Portion. "
         "Beachte Praeferenzen (vegetarian/vegan/no_pork/lactose_free/budget/kitchen=italian,german,...). "
         "Antworte ausschliesslich als JSON in dem angegebenen Format."
     )
@@ -1392,7 +1614,7 @@ Regeln: metrisch, 50-400 g/Zutat, pro Portion <= max_kcal falls gesetzt. Keine E
     except Exception as exc:
         notes.append(f"LLM-Fehler: {exc}")
         if required_slots > 0:
-            _fill_from_fallback()
+            _fill_from_fallback(required_slots)
         return ComposeResponse(constraints=constraints, ideas=ideas[:3], notes=notes)
 
     llm_ideas: List[RecipeIdea] = []
@@ -1406,6 +1628,7 @@ Regeln: metrisch, 50-400 g/Zutat, pro Portion <= max_kcal falls gesetzt. Keine E
             except Exception:
                 return 0.0
 
+    raw_ideas = list(raw_ideas or [])[:llm_slots]
     for idea_dict in raw_ideas:
         try:
             idea = RecipeIdea(**idea_dict)
@@ -1416,6 +1639,9 @@ Regeln: metrisch, 50-400 g/Zutat, pro Portion <= max_kcal falls gesetzt. Keine E
             idea.macros.protein_g = clamp(safe_float(idea.macros.protein_g), 0, 200)
             idea.macros.carbs_g = clamp(safe_float(idea.macros.carbs_g), 0, 250)
             idea.macros.fat_g = clamp(safe_float(idea.macros.fat_g), 0, 120)
+        idea.source = "llm"
+        if "llm" not in idea.tags:
+            idea.tags.append("llm")
         idea = _tighten_with_foods_db(session, idea)
         llm_ideas.append(idea)
 
@@ -1426,13 +1652,10 @@ Regeln: metrisch, 50-400 g/Zutat, pro Portion <= max_kcal falls gesetzt. Keine E
         required_slots = max(0, 3 - len(ideas))
 
     if len(ideas) < 3:
-        _fill_from_fallback()
+        _fill_from_fallback(required_slots)
 
     if not ideas:
-        return JSONResponse(
-            status_code=502,
-            content={"error": "no_ideas", "detail": "Keine verwertbaren Ideen generiert."}
-        )
+        return _no_ideas_response("no_ideas", "Keine verwertbaren Ideen generiert.", status_code=502)
 
     if constraints.get("max_kcal"):
         over = [i.title for i in ideas if i.macros and i.macros.kcal > constraints["max_kcal"]]
