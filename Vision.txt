@@ -1,6 +1,6 @@
-Vision von NutriTrack
+Vision von dbwdi
 
-NutriTrack soll ein intelligenter Ernährungsassistent sein, der individuelle Mahlzeiten und Rezepte automatisch plant.
+dbwdi soll ein intelligenter Ernährungsassistent sein, der individuelle Mahlzeiten und Rezepte automatisch plant.
 
 Das System kombiniert:
 

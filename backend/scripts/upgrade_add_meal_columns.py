@@ -1,7 +1,7 @@
 # backend/scripts/upgrade_add_meal_columns.py
 import sqlite3, os
 
-DB = os.environ.get("DATABASE_URL_SQLITE", "./nutritrack.db")
+DB = os.environ.get("DATABASE_URL_SQLITE", "./dbwdi.db")
 conn = sqlite3.connect(DB)
 cur = conn.cursor()
 

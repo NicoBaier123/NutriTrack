@@ -23,10 +23,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "NutriTrack API"
+    app_name: str = "dbwdi API"
     app_version: str = "0.1.0"
     docs_url: str = "/docs"
-    database_url: str = f"sqlite:///{(BACKEND_ROOT / 'nutritrack.db').as_posix()}"
+    database_url: str = f"sqlite:///{(BACKEND_ROOT / 'dbwdi.db').as_posix()}"
     database_echo: bool = False
     advisor_llm_enabled: bool = True
 
