@@ -12,7 +12,7 @@ rectangle "Llama-Modell\n(Generation)" as LLM
 rectangle "Portionierungslogik\n(An Ziel & Tagesbilanz)" as PORT
 rectangle "Zutatenanalyse\n(Tokenisierung/NER der Zutatenliste)" as ZUT
 
-rectangle "SQLite: nutritrack.db" as DB
+rectangle "SQLite: dbwdi.db" as DB
 rectangle "Cache: Foods\n(Nährwerte pro Zutat)" as CACHE
 rectangle "Rezepte + Ingredients\n(own schema)" as REC
 

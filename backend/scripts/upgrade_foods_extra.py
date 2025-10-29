@@ -1,7 +1,7 @@
 # backend/scripts/upgrade_foods_extra.py
 import os, sqlite3
 
-DB = os.environ.get("DATABASE_URL_SQLITE", "./nutritrack.db")
+DB = os.environ.get("DATABASE_URL_SQLITE", "./dbwdi.db")
 conn = sqlite3.connect(DB)
 cur = conn.cursor()
 

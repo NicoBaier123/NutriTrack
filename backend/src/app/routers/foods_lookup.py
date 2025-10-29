@@ -28,7 +28,7 @@ def _http_session() -> requests.Session:
     s.trust_env = False  # keine Proxy-Envvariablen übernehmen
     s.headers.update({
         "Accept": "application/json",
-        "User-Agent": "NutriTrack/0.1",
+        "User-Agent": "dbwdi/0.1",
     })
     return s
 

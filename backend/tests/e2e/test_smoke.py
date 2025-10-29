@@ -12,4 +12,4 @@ async def test_health_endpoint(client: AsyncClient):
 async def test_demo_page_served(client: AsyncClient):
     resp = await client.get("/demo")
     assert resp.status_code == 200
-    assert "<title>NutriTrack Demo</title>" in resp.text
+    assert "<title>dbwdi Demo</title>" in resp.text

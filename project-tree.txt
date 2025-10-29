@@ -4,8 +4,8 @@ C:.
 |   .coverage
 |   .gitignore
 |   hello_world.py
-|   nutritrack.db
-|   nutritrack.db.bak
+|   dbwdi.db
+|   dbwdi.db.bak
 |   project-tree.txt
 |   README.txt
 |   UML.png
@@ -3703,8 +3703,8 @@ C:.
 +---backend
 |   |   .coverage
 |   |   .env
-|   |   nutritrack.db
-|   |   nutritrack.db.bak
+|   |   dbwdi.db
+|   |   dbwdi.db.bak
 |   |   pytest.ini
 |   |   requirements-dev.in
 |   |   requirements-dev.txt
