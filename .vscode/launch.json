@@ -2,7 +2,7 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run NutriTrack Backend",
+      "name": "Run dbwdi Backend",
       "type": "python",
       "request": "launch",
       "module": "uvicorn",
@@ -20,7 +20,7 @@
       "justMyCode": true
     },
     {
-      "name": "Run NutriTrack Backend (open /demo)",
+      "name": "Run dbwdi Backend (open /demo)",
       "type": "python",
       "request": "launch",
       "module": "uvicorn",
