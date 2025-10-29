@@ -2,36 +2,44 @@
 skinparam monochrome true
 skinparam defaultFontName Courier
 skinparam defaultFontSize 12
+skinparam linetype ortho
+left to right direction
 
 rectangle "Frontend / Client" as FE
 rectangle "FastAPI Backend" as API
+rectangle "RAG Controller" as RAG
 
-rectangle "RAG-Controller" as RAG
-rectangle "Retriever\n(Vektorindex + Metadaten)" as RET
-rectangle "Llama-Modell\n(Generation)" as LLM
-rectangle "Portionierungslogik\n(An Ziel & Tagesbilanz)" as PORT
-rectangle "Zutatenanalyse\n(Tokenisierung/NER der Zutatenliste)" as ZUT
+rectangle "Retrieval Layer" {
+  rectangle "Retriever\n(Vector index + metadata)" as RET
+  rectangle "Cache: Foods\n(Naehrwerte per ingredient)" as CACHE
+  rectangle "SQLite: dbwdi.db" as DB
+  rectangle "Recipes + Ingredients\n(Own schema)" as REC
+}
 
-rectangle "SQLite: dbwdi.db" as DB
-rectangle "Cache: Foods\n(Nährwerte pro Zutat)" as CACHE
-rectangle "Rezepte + Ingredients\n(own schema)" as REC
+rectangle "Generation Layer" {
+  rectangle "Llama Model\n(Generation)" as LLM
+  rectangle "Ingredient Analysis\n(Tokenization / NER)" as ZUT
+  rectangle "Portioning Logic\n(Target & daily balance)" as PORT
+}
 
-rectangle "FDC / OFF API\n(Nährwertquellen)" as FDC
+rectangle "External APIs" {
+  rectangle "FDC / OFF API\n(Naehrwert sources)" as FDC
+}
 
-FE --> API
-API --> RAG
-RAG --> RET
-RAG --> LLM
-RET --> REC
-LLM --> ZUT
-RET --> ZUT
-ZUT --> CACHE
-CACHE --> DB
-ZUT --> FDC
-FDC --> CACHE
-CACHE --> PORT
-REC --> PORT
-PORT --> API
-API --> FE
+FE <-> API
+API -right-> RAG
+RAG -right-> RET
+RAG -right-> LLM
+RET -down-> CACHE
+CACHE -down-> DB
+RET -down-> REC
+LLM -down-> ZUT
+ZUT -down-> PORT
+RET -right-> ZUT
+REC -right-> PORT
+CACHE -right-> PORT
+ZUT -right-> FDC
+FDC -left-> CACHE
+PORT -left-> API
 
 @enduml

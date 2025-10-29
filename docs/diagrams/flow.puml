@@ -2,32 +2,33 @@
 skinparam monochrome true
 skinparam defaultFontName Courier
 skinparam defaultFontSize 12
+skinparam linetype ortho
 
 start
-:User-Request (z.B. "Dinner ~600 kcal, vegetarisch");
-:API → RAG-Controller;
+:User request (e.g. "Dinner ~600 kcal, vegetarian");
+:API -> RAG Controller;
 
-if ("Passendes Rezept in lokaler DB?") then (Ja)
-  :Retriever liefert Rezept + Zutaten;
-else (Nein)
-  :Llama generiert Rezeptvorschlag;
+if ("Recipe available in local DB?") then (Yes)
+  :Retriever returns recipe + ingredients;
+else (No)
+  :Llama generates recipe draft;
 endif
 
-:Zutatenliste extrahieren;
+:Extract ingredient list;
 
 repeat
-  :Nächste Zutat;
-  if ("Nährwerte im Cache (DB)?") then (Ja)
-    :Lese Nährwerte aus CACHE;
-  else (Nein)
-    :FDC/OFF API call;
-    :Speichere Ergebnis in CACHE (DB);
+  :Next ingredient;
+  if ("Nutrition data cached (DB)?") then (Yes)
+    :Read nutrition data from cache;
+  else (No)
+    :FDC / OFF API call;
+    :Persist result in cache (DB);
   endif
-repeat while (weitere Zutaten?)
+repeat while (More ingredients?)
 
-:Makros aggregieren (kcal, P/C/F);
-:Portionierungslogik\n→ an Ziel & Tagesbilanz anpassen;
-:Resultat formatieren (Rezept + Nährwerte + Hinweise);
+:Aggregate macros (kcal, protein, carbs, fat);
+:Portioning logic\nadjusts to goal & daily balance;
+:Format result (recipe + nutrition + notes);
 
 stop
 @enduml
