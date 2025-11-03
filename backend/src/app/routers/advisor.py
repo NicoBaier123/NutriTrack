@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 import json, http.client, os
 
 from app.core.config import get_settings
-from app.db import get_session
+from app.core.database import get_session
 from app.models.foods import Food
 from app.models.meals import Meal, MealItem
 from app.routers.summary import _intake_for_day, _active_minutes_for_day, _target_kcal_for_day
