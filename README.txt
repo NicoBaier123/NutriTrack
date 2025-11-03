@@ -28,6 +28,7 @@ backend/scripts/
 seed_smoothie_bowls.py:1 füllt Foods/Recipes per Script (Nutzung über aktivierte venv).
 backend/tests/unit/test_llm_utils.py:1 prüft JSON-Ausgabe/Parsing des LLM-Helfers.
 Infrastruktur: .vscode/launch.json:1 startet uvicorn samt venv-Setup; Datenbasis backend/data/foods.csv.
+RAG-Embedding-Service: backend/scripts/embed_service.py stellt einen optionalen FastAPI-Dienst bereit, der Sentence-Transformers nutzt (Default: all-MiniLM-L6-v2). Start via `uvicorn backend.scripts.embed_service:app --host 127.0.0.1 --port 8001`, danach RAG_EMBED_URL auf http://127.0.0.1:8001/embed setzen.
 Wichtige Schnittstellen
 
 REST-Endpoints via FastAPI (obige Router) mit SQLModel-Sessions (get_session aus database.py).

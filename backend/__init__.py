@@ -7,7 +7,7 @@ from pathlib import Path
 def _candidate_paths() -> list[str]:
     """Return folders that should expose backend.* subpackages."""
     base_dir = Path(__file__).resolve().parent
-    candidates = [base_dir / "src"]
+    candidates = [base_dir, base_dir / "src"]
 
     # Include optional extras (e.g. tests) if present so backend.tests.* still works.
     tests_dir = base_dir / "tests"
