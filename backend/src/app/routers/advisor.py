@@ -159,7 +159,7 @@ def _llm_generate(
 
     raise HTTPException(status_code=503, detail="Kein lokales LLM erreichbar (llama.cpp / Ollama).")
 
-# NEU: System-Prompt für Chat-ähnliche Antworten (de, sachlich, knapp, hilfreich).
+
 SYSTEM_PROMPT_CHAT = (
     "Du bist ein hilfsbereiter, praeziser Ernährungs- und Fitnessassistent. "
     "Antworte knapp, klar und mit konkreten Zahlen, wenn sinnvoll. "
