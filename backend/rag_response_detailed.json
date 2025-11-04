@@ -1,0 +1,201 @@
+{
+  "constraints": {
+    "max_kcal": null,
+    "protein_bias": false
+  },
+  "ideas": [
+    {
+      "title": "Forest Berry Crunch Bowl",
+      "time_minutes": 10,
+      "difficulty": "easy",
+      "ingredients": [
+        {
+          "name": "Blueberry",
+          "grams": 100.0,
+          "note": null
+        },
+        {
+          "name": "Raspberry",
+          "grams": 80.0,
+          "note": null
+        },
+        {
+          "name": "Strawberry",
+          "grams": 70.0,
+          "note": null
+        },
+        {
+          "name": "Homemade Cashew Milk",
+          "grams": 160.0,
+          "note": null
+        },
+        {
+          "name": "Buckwheat Groats",
+          "grams": 30.0,
+          "note": null
+        },
+        {
+          "name": "Almonds",
+          "grams": 15.0,
+          "note": null
+        },
+        {
+          "name": "Coconut Flakes (Unsweetened)",
+          "grams": 10.0,
+          "note": null
+        }
+      ],
+      "instructions": [
+        "Blend berries with cashew milk until smooth.",
+        "Spoon into a bowl.",
+        "Scatter buckwheat, chopped almonds, and coconut flakes on top."
+      ],
+      "macros": {
+        "kcal": 409.9,
+        "protein_g": 11.3,
+        "carbs_g": 59.7,
+        "fat_g": 19.2
+      },
+      "tags": [
+        "smoothie_bowl",
+        "berries",
+        "vegetarian",
+        "rag"
+      ],
+      "source": "rag"
+    },
+    {
+      "title": "Golden Berry Glow Bowl",
+      "time_minutes": 10,
+      "difficulty": "easy",
+      "ingredients": [
+        {
+          "name": "Golden Berry",
+          "grams": 100.0,
+          "note": null
+        },
+        {
+          "name": "Orange",
+          "grams": 90.0,
+          "note": null
+        },
+        {
+          "name": "Pineapple",
+          "grams": 80.0,
+          "note": null
+        },
+        {
+          "name": "Baobab Powder",
+          "grams": 7.0,
+          "note": null
+        },
+        {
+          "name": "Coconut Water",
+          "grams": 160.0,
+          "note": null
+        },
+        {
+          "name": "Sesame Seeds",
+          "grams": 12.0,
+          "note": null
+        },
+        {
+          "name": "Coconut Chips",
+          "grams": 10.0,
+          "note": null
+        },
+        {
+          "name": "Hazelnuts",
+          "grams": 18.0,
+          "note": null
+        }
+      ],
+      "instructions": [
+        "Blend golden berries, orange, pineapple, baobab powder, and coconut water until bright.",
+        "Pour into a bowl.",
+        "Garnish with sesame seeds, coconut chips, and chopped hazelnuts."
+      ],
+      "macros": {
+        "kcal": 429.4,
+        "protein_g": 9.9,
+        "carbs_g": 52.8,
+        "fat_g": 24.7
+      },
+      "tags": [
+        "smoothie_bowl",
+        "vitamin_c",
+        "vegan",
+        "rag"
+      ],
+      "source": "rag"
+    },
+    {
+      "title": "Peach Basil Bliss Bowl",
+      "time_minutes": 10,
+      "difficulty": "easy",
+      "ingredients": [
+        {
+          "name": "Peach",
+          "grams": 120.0,
+          "note": null
+        },
+        {
+          "name": "Nectarine",
+          "grams": 80.0,
+          "note": null
+        },
+        {
+          "name": "Banana",
+          "grams": 60.0,
+          "note": null
+        },
+        {
+          "name": "Basil Leaves",
+          "grams": 8.0,
+          "note": null
+        },
+        {
+          "name": "Homemade Hemp Milk",
+          "grams": 160.0,
+          "note": null
+        },
+        {
+          "name": "Lucuma Powder",
+          "grams": 8.0,
+          "note": null
+        },
+        {
+          "name": "Macadamia Nuts",
+          "grams": 20.0,
+          "note": null
+        },
+        {
+          "name": "Coconut Flakes (Unsweetened)",
+          "grams": 12.0,
+          "note": null
+        }
+      ],
+      "instructions": [
+        "Blend peaches, nectarines, banana, basil, and hemp milk until creamy.",
+        "Pour into a bowl.",
+        "Dust with lucuma, crushed macadamias, and coconut flakes."
+      ],
+      "macros": {
+        "kcal": 440.3,
+        "protein_g": 8.6,
+        "carbs_g": 53.6,
+        "fat_g": 27.9
+      },
+      "tags": [
+        "smoothie_bowl",
+        "stonefruit",
+        "vegetarian",
+        "rag"
+      ],
+      "source": "rag"
+    }
+  ],
+  "notes": [
+    "RAG fand 3 passende Rezepte (Kandidaten: 23)."
+  ]
+}

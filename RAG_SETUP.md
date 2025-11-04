@@ -62,7 +62,7 @@ python -m uvicorn app.main:app --app-dir src --reload --host 127.0.0.1 --port 80
 ### 3. Test the RAG System
 
 You can test the system using the `/advisor/compose` endpoint:
-
+----------didnt work---------
 ```bash
 curl -X POST "http://127.0.0.1:8000/advisor/compose" \
   -H "Content-Type: application/json" \
@@ -72,6 +72,23 @@ curl -X POST "http://127.0.0.1:8000/advisor/compose" \
     "preferences": ["vegan"]
   }'
 ```
+----------------------------
+
+this worked:
+
+$body = @'
+{
+  "message": "protein-rich breakfast smoothie bowl vegan",
+  "servings": 1,
+  "preferences": ["vegan"]
+}
+'@
+
+curl -X POST "http://127.0.0.1:8000/advisor/compose" `
+  -H "Content-Type: application/json" `
+  --data-binary $body
+
+---------------------------
 
 Or use the `/advisor/recommendations` endpoint:
 
@@ -157,10 +174,113 @@ User Query → Build Query Text
         Rank & Return Top Results
 ```
 
+## RAG Evaluation
+
+The project includes a comprehensive evaluation system to measure RAG performance with measurable KPIs.
+
+### Running Evaluation
+
+#### Option 1: Using the Evaluation Script
+
+Run the evaluation script to get a detailed summary table of KPIs:
+
+```bash
+cd backend
+python scripts/run_rag_eval.py
+```
+
+This script:
+- Loads the labeled dataset from `backend/tests/data/rag_eval.json`
+- Runs the modular RAG pipeline on each test case
+- Calculates KPIs (hit rate, precision@k, nutrition compliance, latency)
+- Prints a formatted summary table
+
+#### Option 2: Using pytest
+
+Run the KPI tests directly:
+
+```bash
+cd backend
+# Run all RAG metrics tests (including slow ones)
+python -m pytest tests/rag_metrics_test.py -v
+
+# Run only fast tests (exclude slow ones)
+python -m pytest tests/rag_metrics_test.py -v -m "not slow"
+
+# Run only slow/integration tests
+python -m pytest tests/rag_metrics_test.py -v -m "slow"
+```
+
+### Key Performance Indicators (KPIs)
+
+The evaluation system measures:
+
+1. **Hit Rate**: Fraction of expected recipes found in retrieved results
+2. **Precision@k**: Fraction of top k retrieved recipes that match expected list
+3. **Nutrition Compliance**: Fraction of retrieved recipes that meet nutritional constraints
+4. **Macro Score Compliance**: Average macro fit score for retrieved recipes
+5. **Response Latency**: Time taken to retrieve and rank recipes
+
+### Interpreting Results
+
+**Hit Rate**: Higher is better (0.0-1.0)
+- 1.0 = All expected recipes found
+- 0.5 = Half of expected recipes found
+- 0.0 = No expected recipes found
+
+**Precision@3**: Higher is better (0.0-1.0)
+- 1.0 = All top 3 results are relevant
+- 0.67 = 2 out of 3 top results are relevant
+- 0.0 = No relevant results in top 3
+
+**Nutrition Compliance**: Higher is better (0.0-1.0)
+- 1.0 = All retrieved recipes meet constraints
+- 0.0 = No recipes meet constraints
+
+**Response Latency**: Lower is better (seconds)
+- Target: < 1.0 second per query
+- Acceptable: < 3.0 seconds per query
+- Poor: > 5.0 seconds per query
+
+### Labeled Dataset
+
+The evaluation dataset (`backend/tests/data/rag_eval.json`) contains:
+- Test queries with user preferences and constraints
+- Expected top recipes for each query
+- Metadata about dietary requirements and meal types
+
+To add more test cases, edit the JSON file and add entries to the `test_cases` array.
+
+### Example Output
+
+```
+==========================================================================================
+                            RAG EVALUATION SUMMARY
+==========================================================================================
+Test ID      | Hit Rate  | P@3     | Nutr. Comp. | Macro Comp. | Latency (s) | Embed?
+-------------|-----------|---------|-------------|-------------|-------------|--------
+test_001     | 100.00%   | 100.00% | 100.00%     | 100.00%     | 0.234       | Yes
+test_002     | 50.00%    | 66.67%  | 100.00%     | 100.00%     | 0.189       | Yes
+...
+-------------|-----------|---------|-------------|-------------|-------------|--------
+AVERAGE      | 75.00%    | 83.33%  | 100.00%     | 100.00%     | 0.211       | 5/5
+==========================================================================================
+
+=== Aggregate KPIs ===
+Average Hit Rate:        75.00%
+Average Precision@3:     83.33%
+Average Nutrition Compliance: 100.00%
+Average Macro Compliance: 100.00%
+Average Response Latency: 0.211 seconds
+Embeddings Used:         5/5 tests
+Total Test Cases:        5
+```
+
 ## Next Steps
 
 - Add more recipes to improve coverage
 - Fine-tune embeddings with domain-specific data
 - Implement caching for frequent queries
 - Add user feedback loop for result quality
+- Expand evaluation dataset with more diverse queries
 

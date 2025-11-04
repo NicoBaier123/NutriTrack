@@ -26,6 +26,15 @@ try:
 except Exception:
     HAS_RECIPES = False
 
+# --- Modular RAG system ---
+try:
+    from app.rag.indexer import RecipeIndexer, RecipeEmbedding
+    from app.rag.preprocess import QueryPreprocessor
+    from app.rag.postprocess import PostProcessor
+    RAG_MODULES_AVAILABLE = True
+except Exception:
+    RAG_MODULES_AVAILABLE = False
+
 router = APIRouter(prefix="/advisor", tags=["advisor"])
 SETTINGS = get_settings()
 
@@ -740,6 +749,15 @@ def _recipes_matching_query(
     limit: int,
     required_ingredients: Optional[List[str]] = None,
 ) -> Tuple[List["RecipeIdea"], Dict[str, Any]]:
+    """
+    REFACTORED: Now uses modular RAG system (RecipeIndexer, QueryPreprocessor, PostProcessor).
+    
+    Behavior changes:
+    - Recipe embeddings are cached in SQLite table (recipe_embeddings)
+    - Document building and query preprocessing are handled by QueryPreprocessor
+    - Scoring uses PostProcessor with configurable weights
+    - Falls back to keyword matching if embeddings unavailable (same as before)
+    """
     meta = {
         "reason": None,
         "used_embeddings": False,
@@ -750,6 +768,7 @@ def _recipes_matching_query(
         meta["reason"] = "recipes_table_missing"
         return [], meta
 
+    # Step 1: Retrieve candidate recipes from database
     stmt = (
         select(Recipe)
         .options(selectinload(Recipe.ingredients))
@@ -760,6 +779,7 @@ def _recipes_matching_query(
     recipes = session.exec(stmt).all()
     meta["candidates_total"] = len(recipes)
 
+    # Step 2: Filter by preferences and required ingredients
     req_lower = [name.strip().lower() for name in (required_ingredients or []) if name]
     filtered: List[Recipe] = []
     for recipe in recipes:
@@ -779,34 +799,87 @@ def _recipes_matching_query(
         meta["reason"] = "no_recipe_matching_preferences"
         return [], meta
 
-    docs = [_recipe_document(recipe) for recipe in filtered]
-    query_text = _build_query_text(req, prefs, constraints)
+    # Step 3: Use modular RAG system if available, otherwise fallback to legacy code
+    if RAG_MODULES_AVAILABLE:
+        # Build query text using QueryPreprocessor
+        prefs_dict = prefs.model_dump(exclude_none=True) if prefs else {}
+        query_text = QueryPreprocessor.build_query_text(
+            message=req.message or "",
+            preferences=prefs_dict,
+            constraints=constraints,
+            servings=req.servings,
+        )
 
-    vectors = _embed_texts([query_text] + docs) if docs else None
-    scored: List[Tuple[float, Recipe]] = []
+        # Build document texts for recipes
+        document_texts = [QueryPreprocessor.build_document(recipe) for recipe in filtered]
 
-    if vectors and len(vectors) == len(docs) + 1:
-        meta["used_embeddings"] = True
-        query_vec = vectors[0]
-        for recipe, doc_vec in zip(filtered, vectors[1:]):
-            score = _cosine(query_vec, doc_vec)
-            score += _nutrition_fit_score(recipe, constraints)
-            score += _ingredient_overlap_score(recipe, req.message or "")
-            scored.append((score, recipe))
+        # Initialize indexer with embedding client
+        embedding_client = _embed_texts  # Use existing embedding function
+        indexer = RecipeIndexer(session, embedding_client=embedding_client)
+
+        # Get cached embeddings or compute new ones
+        recipe_embeddings = indexer.batch_index(filtered, document_texts, force_refresh=False)
+
+        # Embed query text
+        query_vectors = embedding_client([query_text]) if embedding_client else None
+        query_vec = query_vectors[0] if query_vectors and len(query_vectors) > 0 else None
+
+        # Initialize post-processor with default weights
+        post_processor = PostProcessor(
+            semantic_weight=1.0,
+            nutrition_weight=0.5,
+            ingredient_weight=0.3,
+        )
+
+        # Determine if we should use embeddings or keyword fallback
+        use_keyword_fallback = query_vec is None or not recipe_embeddings
+        meta["used_embeddings"] = not use_keyword_fallback
+
+        # Score recipes
+        scored = post_processor.score_batch(
+            recipes=filtered,
+            query_vector=query_vec,
+            recipe_vectors=recipe_embeddings if not use_keyword_fallback else None,
+            query_text=query_text,
+            constraints=constraints,
+            use_keyword_fallback=use_keyword_fallback,
+        )
+
+        # Apply constraint filtering (already done above, but PostProcessor can do additional filtering)
+        # Limit results
+        scored = post_processor.rerank(scored, limit=limit)
     else:
-        if vectors and len(vectors) != len(docs) + 1:
-            meta["reason"] = "embedding_size_mismatch"
-        query_tokens = _tokenize(query_text)
-        for recipe, doc_text in zip(filtered, docs):
-            doc_tokens = _tokenize(doc_text)
-            score = _keyword_overlap(query_tokens, doc_tokens)
-            score += _nutrition_fit_score(recipe, constraints)
-            score += _ingredient_overlap_score(recipe, req.message or "")
-            scored.append((score, recipe))
-        if vectors is None:
-            meta["reason"] = meta["reason"] or "embeddings_unavailable"
+        # Fallback to legacy implementation
+        docs = [_recipe_document(recipe) for recipe in filtered]
+        query_text = _build_query_text(req, prefs, constraints)
 
-    scored.sort(key=lambda item: item[0], reverse=True)
+        vectors = _embed_texts([query_text] + docs) if docs else None
+        scored: List[Tuple[float, Recipe]] = []
+
+        if vectors and len(vectors) == len(docs) + 1:
+            meta["used_embeddings"] = True
+            query_vec = vectors[0]
+            for recipe, doc_vec in zip(filtered, vectors[1:]):
+                score = _cosine(query_vec, doc_vec)
+                score += _nutrition_fit_score(recipe, constraints)
+                score += _ingredient_overlap_score(recipe, req.message or "")
+                scored.append((score, recipe))
+        else:
+            if vectors and len(vectors) != len(docs) + 1:
+                meta["reason"] = "embedding_size_mismatch"
+            query_tokens = _tokenize(query_text)
+            for recipe, doc_text in zip(filtered, docs):
+                doc_tokens = _tokenize(doc_text)
+                score = _keyword_overlap(query_tokens, doc_tokens)
+                score += _nutrition_fit_score(recipe, constraints)
+                score += _ingredient_overlap_score(recipe, req.message or "")
+                scored.append((score, recipe))
+            if vectors is None:
+                meta["reason"] = meta["reason"] or "embeddings_unavailable"
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+
+    # Step 4: Convert scored recipes to RecipeIdea objects
     ideas: List[RecipeIdea] = []
     for score, recipe in scored[:limit]:
         idea = _recipe_to_idea(recipe)

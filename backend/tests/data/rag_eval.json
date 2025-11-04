@@ -1,0 +1,122 @@
+{
+  "description": "Labeled dataset for RAG evaluation: queries with expected top recipes",
+  "version": "1.0",
+  "test_cases": [
+    {
+      "id": "test_001",
+      "query": {
+        "message": "I want a vegan smoothie bowl for breakfast",
+        "servings": 1,
+        "day": "2024-01-15",
+        "preferences": ["vegan"],
+        "prefs": {
+          "vegan": true
+        },
+        "constraints": {
+          "max_kcal": 500
+        }
+      },
+      "expected_top_recipes": [
+        "Sunrise Citrus Glow Bowl",
+        "Tropical Green Revive Bowl",
+        "Radiant Roots Bowl"
+      ],
+      "min_expected_count": 1,
+      "metadata": {
+        "dietary": "vegan",
+        "meal_type": "breakfast",
+        "description": "Vegan smoothie bowl query"
+      }
+    },
+    {
+      "id": "test_002",
+      "query": {
+        "message": "High protein recipe with berries",
+        "servings": 1,
+        "day": "2024-01-15",
+        "preferences": [],
+        "prefs": {},
+        "constraints": {
+          "min_protein_g": 20
+        }
+      },
+      "expected_top_recipes": [
+        "Forest Berry Crunch Bowl",
+        "Sacha Super Seed Bowl"
+      ],
+      "min_expected_count": 1,
+      "metadata": {
+        "dietary": "none",
+        "meal_type": "any",
+        "description": "Protein-focused berry recipe"
+      }
+    },
+    {
+      "id": "test_003",
+      "query": {
+        "message": "Tropical fruit bowl",
+        "servings": 1,
+        "day": "2024-01-15",
+        "preferences": [],
+        "prefs": {},
+        "constraints": {}
+      },
+      "expected_top_recipes": [
+        "Tropical Sunset Pitaya Bowl",
+        "Tropical Green Revive Bowl",
+        "Sunrise Citrus Glow Bowl"
+      ],
+      "min_expected_count": 1,
+      "metadata": {
+        "dietary": "none",
+        "meal_type": "any",
+        "description": "Tropical fruit preference"
+      }
+    },
+    {
+      "id": "test_004",
+      "query": {
+        "message": "Low calorie vegetarian option",
+        "servings": 1,
+        "day": "2024-01-15",
+        "preferences": ["vegetarian"],
+        "prefs": {
+          "veggie": true
+        },
+        "constraints": {
+          "max_kcal": 400
+        }
+      },
+      "expected_top_recipes": [
+        "Forest Berry Crunch Bowl"
+      ],
+      "min_expected_count": 1,
+      "metadata": {
+        "dietary": "vegetarian",
+        "meal_type": "any",
+        "description": "Low calorie vegetarian option"
+      }
+    },
+    {
+      "id": "test_005",
+      "query": {
+        "message": "Energy boost smoothie bowl",
+        "servings": 1,
+        "day": "2024-01-15",
+        "preferences": [],
+        "prefs": {},
+        "constraints": {}
+      },
+      "expected_top_recipes": [
+        "Mango Lucuma Crunch Bowl",
+        "Sacha Super Seed Bowl"
+      ],
+      "min_expected_count": 1,
+      "metadata": {
+        "dietary": "none",
+        "meal_type": "any",
+        "description": "Energy-focused recipe"
+      }
+    }
+  ]
+}
