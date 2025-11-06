@@ -22,6 +22,7 @@ class IntakeTotals(BaseModel):
     protein_g: float = 0.0
     carbs_g: float = 0.0
     fat_g: float = 0.0
+    fiber_g: float = 0.0
 
 class DayDetail(BaseModel):
     day: date
@@ -56,7 +57,7 @@ class WeekSummaryResponse(BaseModel):
 
 def _intake_for_day(session: Session, d: date) -> IntakeTotals:
     """
-    Aggregiert kcal/protein/carbs/fat über alle MealItems eines Tages.
+    Aggregiert kcal/protein/carbs/fat/fiber über alle MealItems eines Tages.
     Explizit auf MealItem geankert, um doppelte FROM-Einträge zu vermeiden.
     Robust gegenüber Spaltennamen: protein|protein_g, carbs|carbs_g, fat|fat_g.
     """
@@ -64,8 +65,9 @@ def _intake_for_day(session: Session, d: date) -> IntakeTotals:
     protein_col = getattr(Food, "protein_g", None) or getattr(Food, "protein")
     carbs_col   = getattr(Food, "carbs_g", None) or getattr(Food, "carbs")
     fat_col     = getattr(Food, "fat_g", None) or getattr(Food, "fat")
+    fiber_col   = getattr(Food, "fiber_g", None) or getattr(Food, "fiber", None)
 
-    if kcal_col is None or protein_col is None or carbs_col is None or fat_col is None:
+    if None in (kcal_col, protein_col, carbs_col, fat_col):
         raise RuntimeError("Food-Spalten nicht gefunden (kcal/protein[_g]/carbs[_g]/fat[_g]).")
 
     stmt = (
@@ -74,6 +76,7 @@ def _intake_for_day(session: Session, d: date) -> IntakeTotals:
             func.coalesce(func.sum(protein_col * (MealItem.grams / 100.0)), 0.0),
             func.coalesce(func.sum(carbs_col   * (MealItem.grams / 100.0)), 0.0),
             func.coalesce(func.sum(fat_col     * (MealItem.grams / 100.0)), 0.0),
+            func.coalesce(func.sum((fiber_col or 0.0) * (MealItem.grams / 100.0)), 0.0),
         )
         .select_from(MealItem)  # <<< WICHTIG: eindeutiger Anker
         .join(Meal, Meal.id == MealItem.meal_id)
@@ -81,12 +84,13 @@ def _intake_for_day(session: Session, d: date) -> IntakeTotals:
         .where(Meal.day == d)
     )
 
-    kcal, protein_g, carbs_g, fat_g = session.exec(stmt).one()
+    kcal, protein_g, carbs_g, fat_g, fiber_g = session.exec(stmt).one()
     return IntakeTotals(
         kcal=float(kcal or 0.0),
         protein_g=float(protein_g or 0.0),
         carbs_g=float(carbs_g or 0.0),
         fat_g=float(fat_g or 0.0),
+        fiber_g=float(fiber_g or 0.0),
     )
 
 
@@ -170,6 +174,7 @@ def get_summary_week(
         total_intake.protein_g += intake.protein_g
         total_intake.carbs_g += intake.carbs_g
         total_intake.fat_g += intake.fat_g
+        total_intake.fiber_g += intake.fiber_g
 
         details.append(
             DayDetail(
@@ -180,6 +185,7 @@ def get_summary_week(
                     protein_g=float(round(intake.protein_g, 1)),
                     carbs_g=float(round(intake.carbs_g, 1)),
                     fat_g=float(round(intake.fat_g, 1)),
+                    fiber_g=float(round(intake.fiber_g, 1)),
                 ),
                 delta_kcal=None if delta is None else float(round(delta, 1)),
             )
@@ -219,6 +225,7 @@ def get_summary_week(
         protein_g=float(round(total_intake.protein_g, 1)),
         carbs_g=float(round(total_intake.carbs_g, 1)),
         fat_g=float(round(total_intake.fat_g, 1)),
+        fiber_g=float(round(total_intake.fiber_g, 1)),
     )
 
     return WeekSummaryResponse(
@@ -272,6 +279,7 @@ def get_summary_day(
             protein_g=float(round(intake.protein_g, 1)),
             carbs_g=float(round(intake.carbs_g, 1)),
             fat_g=float(round(intake.fat_g, 1)),
+            fiber_g=float(round(intake.fiber_g, 1)),
         ),
         delta_kcal=delta,
         notes=notes,

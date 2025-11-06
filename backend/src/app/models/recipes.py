@@ -25,6 +25,7 @@ class Recipe(SQLModel, table=True):
     macros_protein_g: Optional[float] = None
     macros_carbs_g: Optional[float] = None
     macros_fat_g: Optional[float] = None
+    macros_fiber_g: Optional[float] = None
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
     ingredients: List["RecipeItem"] = Relationship(

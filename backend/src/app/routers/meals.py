@@ -88,6 +88,7 @@ def get_day(
     protein_col = getattr(Food, "protein_g", None) or getattr(Food, "protein")
     carbs_col = getattr(Food, "carbs_g", None) or getattr(Food, "carbs")
     fat_col = getattr(Food, "fat_g", None) or getattr(Food, "fat")
+    fiber_col = getattr(Food, "fiber_g", None) or getattr(Food, "fiber")
 
     rows = session.exec(
         select(
@@ -101,6 +102,7 @@ def get_day(
             protein_col,           # 7
             carbs_col,             # 8
             fat_col,               # 9
+            fiber_col,             # 10
         )
         .join(Meal, Meal.id == MealItem.meal_id)
         .join(Food, Food.id == MealItem.food_id)
@@ -109,13 +111,13 @@ def get_day(
     ).all()
 
     items: List[Dict[str, Any]] = []
-    totals = {"kcal": 0.0, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0}
+    totals = {"kcal": 0.0, "protein_g": 0.0, "carbs_g": 0.0, "fat_g": 0.0, "fiber_g": 0.0}
 
     for (item_id, grams, meal_id, meal_type, food_id, food_name,
-         kcal100, p100, c100, f100) in rows:
-        m = macros_for_grams(kcal100, p100, c100, f100, grams or 0.0)
+         kcal100, p100, c100, f100, fiber100) in rows:
+        m = macros_for_grams(kcal100, p100, c100, f100, fiber100, grams or 0.0)
         rm = round_macros(m, 1)
-        kcal, prot, carbs, fat = rm.kcal, rm.protein_g, rm.carbs_g, rm.fat_g
+        kcal, prot, carbs, fat, fiber = rm.kcal, rm.protein_g, rm.carbs_g, rm.fat_g, rm.fiber_g
 
         items.append({
             "item_id": int(item_id),
@@ -128,11 +130,13 @@ def get_day(
             "protein_g": prot,
             "carbs_g": carbs,
             "fat_g": fat,
+            "fiber_g": fiber,
         })
         totals["kcal"] += m.kcal
         totals["protein_g"] += m.protein_g
         totals["carbs_g"] += m.carbs_g
         totals["fat_g"] += m.fat_g
+        totals["fiber_g"] += m.fiber_g
 
     for k in totals:
         totals[k] = round(totals[k], 1)
@@ -153,6 +157,7 @@ def summary_by_food(
     protein_col = getattr(Food, "protein_g", None) or getattr(Food, "protein")
     carbs_col = getattr(Food, "carbs_g", None) or getattr(Food, "carbs")
     fat_col = getattr(Food, "fat_g", None) or getattr(Food, "fat")
+    fiber_col = getattr(Food, "fiber_g", None) or getattr(Food, "fiber")
 
     q = (
         select(
@@ -163,6 +168,7 @@ def summary_by_food(
             (func.sum(MealItem.grams) * protein_col / 100.0).label("protein_g"),
             (func.sum(MealItem.grams) * carbs_col / 100.0).label("carbs_g"),
             (func.sum(MealItem.grams) * fat_col / 100.0).label("fat_g"),
+            (func.sum(MealItem.grams) * fiber_col / 100.0).label("fiber_g"),
         )
         .join(Meal, Meal.id == MealItem.meal_id)
         .join(Food, Food.id == MealItem.food_id)
@@ -180,6 +186,7 @@ def summary_by_food(
         "protein_g": round(float(r.protein_g or 0.0), 1),
         "carbs_g": round(float(r.carbs_g or 0.0), 1),
         "fat_g": round(float(r.fat_g or 0.0), 1),
+        "fiber_g": round(float(r.fiber_g or 0.0), 1),
     } for r in rows]
 
     totals = {
@@ -187,6 +194,7 @@ def summary_by_food(
         "protein_g": round(sum(i["protein_g"] for i in items), 1),
         "carbs_g": round(sum(i["carbs_g"] for i in items), 1),
         "fat_g": round(sum(i["fat_g"] for i in items), 1),
+        "fiber_g": round(sum(i["fiber_g"] for i in items), 1),
     }
 
     return {"day": day.isoformat(), "items": items, "totals": totals}

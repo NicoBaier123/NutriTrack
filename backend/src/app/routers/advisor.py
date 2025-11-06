@@ -45,6 +45,7 @@ class MacroTotals(BaseModel):
     protein_g: float = 0.0
     carbs_g: float = 0.0
     fat_g: float = 0.0
+    fiber_g: float = 0.0
 
 class GapsResponse(BaseModel):
     day: date
@@ -65,6 +66,7 @@ class Suggestion(BaseModel):
     est_protein_g: Optional[float] = None
     est_carbs_g: Optional[float] = None
     est_fat_g: Optional[float] = None
+    est_fiber_g: Optional[float] = None
 
 class RecommendationsResponse(BaseModel):
     day: date
@@ -286,6 +288,7 @@ def _macros_from_food(f: Food, grams: float) -> MacroTotals:
         protein_g=float((getattr(f, "protein_g", 0) or 0) * factor),
         carbs_g=float((getattr(f, "carbs_g", 0) or 0) * factor),
         fat_g=float((getattr(f, "fat_g", 0) or 0) * factor),
+        fiber_g=float((getattr(f, "fiber_g", 0) or 0) * factor),
     )
 
 def _mk_goal_kcal(base_kcal: float, goal: Literal["cut","maintain","bulk"], goal_mode: Literal["percent","kcal","rate"],
@@ -358,6 +361,7 @@ def _retrieve_candidates(session: Session, prefs: Prefs, top_k: int = RAG_TOP_K)
                     "protein_g": getattr(r, 'macros_protein_g', None),
                     "carbs_g": getattr(r, 'macros_carbs_g', None),
                     "fat_g": getattr(r, 'macros_fat_g', None),
+                    "fiber_g": getattr(r, 'macros_fiber_g', None),
                 },
             })
     else:
@@ -461,6 +465,7 @@ def _fallback_recommendations_from_foods(
                 est_protein_g=round(macro_primary.protein_g, 1),
                 est_carbs_g=round(macro_primary.carbs_g, 1),
                 est_fat_g=round(macro_primary.fat_g, 1),
+                est_fiber_g=round(macro_primary.fiber_g, 1),
             )
         )
         used_names.add(primary_name)
@@ -523,6 +528,7 @@ def _persist_recipe_ideas(
                 macros_protein_g=(idea.macros.protein_g if idea.macros else None),
                 macros_carbs_g=(idea.macros.carbs_g if idea.macros else None),
                 macros_fat_g=(idea.macros.fat_g if idea.macros else None),
+                macros_fiber_g=(idea.macros.fiber_g if idea.macros else None),
             )
             session.add(recipe)
             session.flush()
@@ -555,6 +561,7 @@ def _recipe_to_idea(recipe: "Recipe") -> "RecipeIdea":
             protein_g=float(recipe.macros_protein_g),
             carbs_g=float(recipe.macros_carbs_g),
             fat_g=float(recipe.macros_fat_g),
+            fiber_g=float(recipe.macros_fiber_g) if recipe.macros_fiber_g is not None else None,
         )
 
     tags = [t.strip() for t in (recipe.tags or "").split(",") if t.strip()]
@@ -587,6 +594,7 @@ def _idea_to_suggestion(idea: "RecipeIdea", source: str = "db") -> Suggestion:
         est_protein_g=idea.macros.protein_g if idea.macros else None,
         est_carbs_g=idea.macros.carbs_g if idea.macros else None,
         est_fat_g=idea.macros.fat_g if idea.macros else None,
+        est_fiber_g=idea.macros.fiber_g if idea.macros else None,
     )
 
 
@@ -692,6 +700,8 @@ def _recipe_document(recipe: "Recipe") -> str:
         macro_bits.append(f"{recipe.macros_carbs_g} g carbs")
     if recipe.macros_fat_g:
         macro_bits.append(f"{recipe.macros_fat_g} g fat")
+    if getattr(recipe, "macros_fiber_g", None):
+        macro_bits.append(f"{recipe.macros_fiber_g} g fiber")
     parts.extend(macro_bits)
     return " ".join(part for part in parts if part).strip()
 
@@ -924,6 +934,7 @@ def gaps(
         protein_g=float(round(intake_totals.protein_g, 1)),
         carbs_g=float(round(intake_totals.carbs_g, 1)),
         fat_g=float(round(intake_totals.fat_g, 1)),
+        fiber_g=float(round(getattr(intake_totals, "fiber_g", 0.0), 1)),
     )
     target = None
     notes: List[str] = []
@@ -947,6 +958,7 @@ def gaps(
             protein_g=round(max(target_protein, 0.0), 0),
             carbs_g=0.0,
             fat_g=0.0,
+            fiber_g=0.0,
         )
         notes.append(f"Ziel kcal via TDEE {round(base_kcal)} & Goal={goal} ({goal_mode}). Protein {protein_g_per_kg} g/kg.")
 
@@ -957,6 +969,7 @@ def gaps(
             protein_g=round(target.protein_g - intake.protein_g, 1),
             carbs_g=round(target.carbs_g - intake.carbs_g, 1),
             fat_g=round(target.fat_g - intake.fat_g, 1),
+            fiber_g=round(target.fiber_g - intake.fiber_g, 1),
         )
         if remaining.kcal <= 0:
             notes.append("Kalorienziel erreicht/überschritten.")
@@ -1114,6 +1127,7 @@ def recommendations(
                 est_protein_g=entry.get("est_protein_g"),
                 est_carbs_g=entry.get("est_carbs_g"),
                 est_fat_g=entry.get("est_fat_g"),
+                est_fiber_g=entry.get("est_fiber_g"),
             ))
     except HTTPException:
         raise
@@ -1186,6 +1200,7 @@ class Macro(BaseModel):
     protein_g: float
     carbs_g: float
     fat_g: float
+    fiber_g: Optional[float] = None
 
 class Ingredient(BaseModel):
     name: str
@@ -1234,7 +1249,7 @@ def _constraints_from_context(session: Session, req: ComposeRequest) -> Dict[str
 
 def _tighten_with_foods_db(session: Session, idea: RecipeIdea) -> RecipeIdea:
     """Wenn Zutaten exakt in Food vorkommen, präzisiere Makros."""
-    kcal = p = c = f = 0.0
+    kcal = p = c = f = fiber = 0.0
     hit = False
     for ing in idea.ingredients:
         if ing.grams and ing.grams > 0:
@@ -1245,9 +1260,16 @@ def _tighten_with_foods_db(session: Session, idea: RecipeIdea) -> RecipeIdea:
                 p    += (fobj.protein_g or 0.0) * factor
                 c    += (fobj.carbs_g  or 0.0) * factor
                 f    += (fobj.fat_g    or 0.0) * factor
+                fiber += (getattr(fobj, "fiber_g", 0.0) or 0.0) * factor
                 hit = True
     if hit:
-        idea.macros = Macro(kcal=round(kcal,1), protein_g=round(p,1), carbs_g=round(c,1), fat_g=round(f,1))
+        idea.macros = Macro(
+            kcal=round(kcal,1),
+            protein_g=round(p,1),
+            carbs_g=round(c,1),
+            fat_g=round(f,1),
+            fiber_g=round(fiber,1),
+        )
     return idea
 
 
@@ -1712,6 +1734,8 @@ Regeln: metrisch, 50-400 g/Zutat, pro Portion <= max_kcal falls gesetzt. Keine E
             idea.macros.protein_g = clamp(safe_float(idea.macros.protein_g), 0, 200)
             idea.macros.carbs_g = clamp(safe_float(idea.macros.carbs_g), 0, 250)
             idea.macros.fat_g = clamp(safe_float(idea.macros.fat_g), 0, 120)
+            if idea.macros.fiber_g is not None:
+                idea.macros.fiber_g = clamp(safe_float(idea.macros.fiber_g), 0, 80)
         idea.source = "llm"
         if "llm" not in idea.tags:
             idea.tags.append("llm")

@@ -8,3 +8,4 @@ class Food(SQLModel, table=True):
     protein_g: float = 0.0
     carbs_g: float = 0.0
     fat_g: float = 0.0
+    fiber_g: float = 0.0
