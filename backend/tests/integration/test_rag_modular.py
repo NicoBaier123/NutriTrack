@@ -13,9 +13,11 @@ from typing import List
 from sqlmodel import Session, select
 
 from app.models.recipes import Recipe, RecipeItem
+from app.models.foods import Food
 from app.rag.indexer import RecipeIndexer, RecipeEmbedding
 from app.rag.preprocess import QueryPreprocessor
 from app.rag.postprocess import PostProcessor
+from app.routers.advisor import _infer_required_ingredients
 
 
 # Mock embedding client that returns dummy vectors
@@ -217,6 +219,15 @@ def test_preprocessor_extract_negative_terms():
     # Duplicates should be suppressed
     duplicate_terms = QueryPreprocessor.extract_negative_terms("no mango, no mango please")
     assert duplicate_terms.count("mango") == 1
+
+
+def test_infer_required_ingredients_skips_negations(db_session: Session):
+    banana = Food(name="Banana", kcal=89.0, protein_g=1.1, carbs_g=23.0, fat_g=0.3, fiber_g=2.6)
+    db_session.add(banana)
+    db_session.commit()
+
+    matches = _infer_required_ingredients(db_session, "no banana smoothie bowl")
+    assert matches == []
 
 
 # ==================== Postprocessor Tests ====================

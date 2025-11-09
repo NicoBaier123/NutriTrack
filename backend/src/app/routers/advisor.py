@@ -625,6 +625,8 @@ def _infer_required_ingredients(session: Session, message: Optional[str]) -> Lis
     message_tokens = set(_tokenize(message))
     if not message_tokens:
         return []
+    negative_terms = set(QueryPreprocessor.extract_negative_terms(message))
+    negative_tokens = {tok for term in negative_terms for tok in _tokenize(term)}
     names = session.exec(select(Food.name)).all()
     matches: List[str] = []
     seen: set[str] = set()
@@ -633,7 +635,11 @@ def _infer_required_ingredients(session: Session, message: Optional[str]) -> Lis
         if not name:
             continue
         name_tokens = set(_tokenize(name))
-        if not name_tokens or not name_tokens <= message_tokens:
+        if not name_tokens:
+            continue
+        if negative_tokens and name_tokens & negative_tokens:
+            continue
+        if not name_tokens <= message_tokens:
             continue
         key = name.lower()
         if key in seen:
