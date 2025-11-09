@@ -21,11 +21,8 @@ import pytest
 from app.rag.indexer import RecipeIndexer
 from app.rag.preprocess import QueryPreprocessor
 from app.rag.postprocess import PostProcessor
-from app.routers.advisor import (
-    _recipes_matching_query,
-    ComposeRequest,
-    Prefs,
-)
+from app.routers.advisor.rag import _recipes_matching_query
+from app.routers.advisor.schemas import ComposeRequest, Prefs
 from app.core.database import get_session, engine
 from app.models.recipes import Recipe
 from sqlmodel import Session, select

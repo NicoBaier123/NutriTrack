@@ -17,7 +17,7 @@ from app.models.foods import Food
 from app.rag.indexer import RecipeIndexer, RecipeEmbedding
 from app.rag.preprocess import QueryPreprocessor
 from app.rag.postprocess import PostProcessor
-from app.routers.advisor import _infer_required_ingredients
+from app.routers.advisor.helpers import _infer_required_ingredients
 
 
 # Mock embedding client that returns dummy vectors

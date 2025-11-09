@@ -23,11 +23,8 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import engine
 from app.models.recipes import Recipe
-from app.routers.advisor import (
-    _recipes_matching_query,
-    ComposeRequest,
-    Prefs,
-)
+from app.routers.advisor.rag import _recipes_matching_query
+from app.routers.advisor.schemas import ComposeRequest, Prefs
 
 # Import metric functions from test module
 sys.path.insert(0, str(PROJECT_ROOT / "tests"))
