@@ -210,6 +210,15 @@ def test_preprocessor_build_query_text():
     assert "vegan" in query.lower() or "true" in query
 
 
+def test_preprocessor_extract_negative_terms():
+    terms = QueryPreprocessor.extract_negative_terms("No mango smoothie bowl without nuts")
+    assert "mango" in terms
+    assert "nuts" in terms
+    # Duplicates should be suppressed
+    duplicate_terms = QueryPreprocessor.extract_negative_terms("no mango, no mango please")
+    assert duplicate_terms.count("mango") == 1
+
+
 # ==================== Postprocessor Tests ====================
 
 
@@ -270,6 +279,7 @@ def test_postprocessor_score_recipe_with_embeddings(sample_recipes: List[Recipe]
         use_keyword_fallback=False,
     )
 
+    assert score is not None
     assert score > 0
 
 
@@ -285,7 +295,22 @@ def test_postprocessor_score_recipe_keyword_fallback(sample_recipes: List[Recipe
         use_keyword_fallback=True,
     )
 
+    assert score is not None
     assert score > 0
+
+
+def test_postprocessor_filters_negative_ingredients(sample_recipes: List[Recipe]):
+    processor = PostProcessor()
+    recipe = sample_recipes[0]
+
+    score = processor.score_recipe(
+        recipe=recipe,
+        query_text="no mango smoothie bowl",
+        use_keyword_fallback=True,
+        negative_ingredients=["ingredient"],
+    )
+
+    assert score is None
 
 
 def test_postprocessor_score_batch(sample_recipes: List[Recipe]):

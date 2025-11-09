@@ -137,6 +137,11 @@ class QueryPreprocessor:
             pref_str = json.dumps(preferences, ensure_ascii=False)
             bits.append(QueryPreprocessor.normalize_text(pref_str))
 
+        # Negative ingredient markers: keep them explicit so the downstream
+        # pipeline can reason about them while still giving the embedder a hint.
+        negatives = QueryPreprocessor.extract_negative_terms(message)
+        if negatives:
+            bits.append(" ".join(f"exclude:{term}" for term in negatives))
         # Constraints
         if constraints:
             # Filter None values for cleaner text
@@ -147,6 +152,33 @@ class QueryPreprocessor:
 
         query_text = " ".join(bits)
         return QueryPreprocessor.normalize_text(query_text)
+
+
+    @staticmethod
+    def extract_negative_terms(text: Optional[str]) -> List[str]:
+        """Extract ingredient names that should be avoided from free-form text."""
+        if not text:
+            return []
+
+        text_norm = QueryPreprocessor.normalize_text(text).lower()
+        patterns = [
+            r"\bno\s+([a-z0-9äöüß\-]+)",
+            r"\bwithout\s+([a-z0-9äöüß\-]+)",
+            r"\bexclude\s+([a-z0-9äöüß\-]+)",
+            r"\bavoid\s+([a-z0-9äöüß\-]+)",
+            r"\bskip\s+([a-z0-9äöüß\-]+)",
+            r"\bdislike\s+([a-z0-9äöüß\-]+)",
+            r"\bhate\s+([a-z0-9äöüß\-]+)",
+        ]
+
+        negatives: List[str] = []
+        for pattern in patterns:
+            for match in re.findall(pattern, text_norm):
+                term = match.strip().lower()
+                if term and term not in negatives:
+                    negatives.append(term)
+
+        return negatives
 
     @staticmethod
     def clean_query(query: str) -> str:

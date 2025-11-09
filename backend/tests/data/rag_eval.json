@@ -117,6 +117,27 @@
         "meal_type": "any",
         "description": "Energy-focused recipe"
       }
+    },
+    {
+      "id": "test_006",
+      "query": {
+        "message": "No mango smoothie bowl",
+        "servings": 1,
+        "day": "2024-01-15",
+        "preferences": [],
+        "prefs": {},
+        "constraints": {}
+      },
+      "expected_top_recipes": [
+        "Forest Berry Crunch Bowl",
+        "Sacha Super Seed Bowl"
+      ],
+      "min_expected_count": 1,
+      "metadata": {
+        "dietary": "none",
+        "meal_type": "any",
+        "description": "Smoothie bowl excluding mango"
+      }
     }
   ]
 }

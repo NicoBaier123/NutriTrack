@@ -719,6 +719,25 @@ def _recipe_has_ingredients(recipe: "Recipe", required_names: List[str]) -> bool
     return all(any(req == name for name in available) for req in required_names)
 
 
+def _recipe_contains_terms(recipe: "Recipe", terms: List[str]) -> bool:
+    """Return True if any of the provided terms appear in the recipe ingredients or document text."""
+    if not terms:
+        return False
+    term_set = {t.strip().lower() for t in terms if t}
+    if not term_set:
+        return False
+
+    # Check ingredient names
+    for ing in getattr(recipe, "ingredients", []) or []:
+        name = (getattr(ing, "name", "") or "").lower()
+        if any(term in name for term in term_set):
+            return True
+
+    # Fall back to the flattened document representation
+    doc_text = _recipe_document(recipe).lower()
+    return any(term in doc_text for term in term_set)
+
+
 def _build_query_text(req: "ComposeRequest", prefs: Prefs, constraints: Dict[str, Any]) -> str:
     bits = [
         req.message or "",
@@ -810,6 +829,10 @@ def _recipes_matching_query(
         return [], meta
 
     # Step 3: Use modular RAG system if available, otherwise fallback to legacy code
+    negative_ingredients = QueryPreprocessor.extract_negative_terms(req.message or "")
+    if negative_ingredients:
+        meta["negative_ingredients"] = negative_ingredients
+
     if RAG_MODULES_AVAILABLE:
         # Build query text using QueryPreprocessor
         prefs_dict = prefs.model_dump(exclude_none=True) if prefs else {}
@@ -853,6 +876,7 @@ def _recipes_matching_query(
             query_text=query_text,
             constraints=constraints,
             use_keyword_fallback=use_keyword_fallback,
+            negative_ingredients=negative_ingredients,
         )
 
         # Apply constraint filtering (already done above, but PostProcessor can do additional filtering)
@@ -870,6 +894,8 @@ def _recipes_matching_query(
             meta["used_embeddings"] = True
             query_vec = vectors[0]
             for recipe, doc_vec in zip(filtered, vectors[1:]):
+                if negative_ingredients and _recipe_contains_terms(recipe, negative_ingredients):
+                    continue
                 score = _cosine(query_vec, doc_vec)
                 score += _nutrition_fit_score(recipe, constraints)
                 score += _ingredient_overlap_score(recipe, req.message or "")
@@ -879,6 +905,8 @@ def _recipes_matching_query(
                 meta["reason"] = "embedding_size_mismatch"
             query_tokens = _tokenize(query_text)
             for recipe, doc_text in zip(filtered, docs):
+                if negative_ingredients and _recipe_contains_terms(recipe, negative_ingredients):
+                    continue
                 doc_tokens = _tokenize(doc_text)
                 score = _keyword_overlap(query_tokens, doc_tokens)
                 score += _nutrition_fit_score(recipe, constraints)

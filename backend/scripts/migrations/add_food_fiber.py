@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Add macros_fiber_g column to recipe table if it is missing.
-
-This migration is idempotent: running it multiple times is safe.
+"""
+Migration script to add the food.fiber_g column if it is missing.
 """
 
 from __future__ import annotations
@@ -18,6 +17,7 @@ def column_exists(cursor: sqlite3.Cursor, table: str, column: str) -> bool:
 
 
 def resolve_sqlite_path() -> Path:
+    """Return the sqlite database path using the FastAPI settings."""
     project_root = Path(__file__).resolve().parents[2]
     src_dir = project_root / "src"
     if str(src_dir) not in sys.path:
@@ -34,6 +34,8 @@ def resolve_sqlite_path() -> Path:
     if not db_url.startswith("sqlite"):
         raise SystemExit(f"Unsupported database URL for this migration: {db_url}")
 
+    # Handle urls of form sqlite:///absolute/path or sqlite:///relative/path.
+    # Strip the leading 'sqlite:///' (three slashes) or 'sqlite://' cases.
     path_part: Optional[str] = None
     if db_url.startswith("sqlite:///"):
         path_part = db_url[len("sqlite:///") :]
@@ -46,6 +48,7 @@ def resolve_sqlite_path() -> Path:
     db_path = Path(path_part)
     if not db_path.is_absolute():
         db_path = (project_root / db_path).resolve()
+
     return db_path
 
 
@@ -53,23 +56,24 @@ def main() -> None:
     db_path = resolve_sqlite_path()
 
     if not db_path.exists():
-        print(f"[SKIP] Database not found at {db_path}")
-        return
+        raise SystemExit(f"Database not found at {db_path}. Run migrations after initializing the DB.")
 
     conn = sqlite3.connect(str(db_path))
-    try:
-        cur = conn.cursor()
-        if column_exists(cur, "recipe", "macros_fiber_g"):
-            print("[OK] recipe.macros_fiber_g already exists")
-            return
+    cursor = conn.cursor()
 
-        print(f"[MIGRATE] Adding recipe.macros_fiber_g column in {db_path}")
-        cur.execute("ALTER TABLE recipe ADD COLUMN macros_fiber_g REAL")
+    print(f"[MIGRATE] Checking for food.fiber_g column in {db_path}")
+
+    if column_exists(cursor, "food", "fiber_g"):
+        print("[SKIP] Column fiber_g already exists on food table.")
+    else:
+        print("[APPLY] Adding fiber_g column to food table...")
+        cursor.execute("ALTER TABLE food ADD COLUMN fiber_g REAL DEFAULT 0.0")
         conn.commit()
-        print("[DONE] Column macros_fiber_g added to recipe table")
-    finally:
-        conn.close()
+        print("[DONE] Column fiber_g added.")
+
+    conn.close()
 
 
 if __name__ == "__main__":
     main()
+

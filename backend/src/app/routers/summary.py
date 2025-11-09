@@ -67,7 +67,7 @@ def _intake_for_day(session: Session, d: date) -> IntakeTotals:
     fat_col     = getattr(Food, "fat_g", None) or getattr(Food, "fat")
     fiber_col   = getattr(Food, "fiber_g", None) or getattr(Food, "fiber", None)
 
-    if None in (kcal_col, protein_col, carbs_col, fat_col):
+    if any(col is None for col in (kcal_col, protein_col, carbs_col, fat_col)):
         raise RuntimeError("Food-Spalten nicht gefunden (kcal/protein[_g]/carbs[_g]/fat[_g]).")
 
     stmt = (

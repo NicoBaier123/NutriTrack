@@ -149,7 +149,8 @@ class PostProcessor:
         query_text: str = "",
         constraints: Optional[Dict[str, Any]] = None,
         use_keyword_fallback: bool = False,
-    ) -> float:
+        negative_ingredients: Optional[List[str]] = None,
+    ) -> Optional[float]:
         """Calculate combined score for a recipe.
 
         Args:
@@ -161,9 +162,34 @@ class PostProcessor:
             use_keyword_fallback: If True, use keyword matching instead of embeddings
 
         Returns:
-            Combined score (higher = better match)
+            Combined score (higher = better match). Returns None when the recipe
+            violates an explicit negative ingredient constraint.
         """
         score = 0.0
+        doc_text: Optional[str] = None
+
+        # Early exit if the recipe contains any explicitly banned ingredient.
+        banned_terms = {term for term in (negative_ingredients or []) if term}
+        if banned_terms:
+            doc_text = QueryPreprocessor.build_document(recipe)
+            doc_tokens = set(QueryPreprocessor.tokenize(doc_text))
+            doc_text_lower = doc_text.lower()
+
+            # Also check ingredient names directly for slightly better recall.
+            ingredient_tokens: set[str] = set()
+            ingredients = getattr(recipe, "ingredients", []) or []
+            for ingredient in ingredients:
+                ingredient_tokens.update(
+                    QueryPreprocessor.tokenize(getattr(ingredient, "name", "") or "")
+                )
+
+            if (
+                doc_tokens & banned_terms
+                or ingredient_tokens & banned_terms
+                or any(term in doc_text_lower for term in banned_terms)
+            ):
+                # Returning None tells the caller to drop this recipe.
+                return None
 
         # Semantic similarity (embedding-based)
         if not use_keyword_fallback and query_vector and recipe_vector:
@@ -173,7 +199,7 @@ class PostProcessor:
         # Keyword overlap (fallback when embeddings unavailable)
         if use_keyword_fallback or not (query_vector and recipe_vector):
             query_tokens = QueryPreprocessor.tokenize(query_text)
-            doc_text = QueryPreprocessor.build_document(recipe)
+            doc_text = doc_text or QueryPreprocessor.build_document(recipe)
             doc_tokens = QueryPreprocessor.tokenize(doc_text)
             keyword_score = self.keyword_overlap_score(query_tokens, doc_tokens)
             score += self.semantic_weight * keyword_score
@@ -198,6 +224,7 @@ class PostProcessor:
         query_text: str,
         constraints: Optional[Dict[str, Any]] = None,
         use_keyword_fallback: bool = False,
+        negative_ingredients: Optional[List[str]] = None,
     ) -> List[Tuple[float, Recipe]]:
         """Score a batch of recipes.
 
@@ -223,7 +250,10 @@ class PostProcessor:
                 query_text=query_text,
                 constraints=constraints or {},
                 use_keyword_fallback=use_keyword_fallback,
+                negative_ingredients=negative_ingredients,
             )
+            if score is None:
+                continue
             scored.append((score, recipe))
 
         # Sort by score (descending)
