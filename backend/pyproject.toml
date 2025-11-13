@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dbwdi-backend"
+version = "0.1.0"
+description = "Backend services and scripts for the dbwdi project."
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["app*"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.in"]}
+
+

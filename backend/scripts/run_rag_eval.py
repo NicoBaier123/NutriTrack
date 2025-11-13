@@ -14,9 +14,10 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from datetime import date
 
-# Add src to path
+import warnings
+warnings.filterwarnings('ignore')
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from sqlmodel import Session, select
 from sqlalchemy.orm import selectinload

@@ -1,0 +1,13 @@
+{
+  "include": [
+    "backend/src",
+    "backend/scripts",
+    "backend/check_rag_state.py"
+  ],
+  "extraPaths": [
+    "backend/src",
+    "backend/tests"
+  ]
+}
+
+

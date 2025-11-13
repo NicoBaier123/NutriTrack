@@ -1,16 +1,11 @@
 from __future__ import annotations
 
-import sys
 from dataclasses import dataclass
-from pathlib import Path
 from tkinter.font import names
 from typing import Sequence
 from unittest import result
 
 from sqlmodel import Session, select
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from app.core.database import engine  # noqa: E402
 from app.models.foods import Food  # noqa: E402

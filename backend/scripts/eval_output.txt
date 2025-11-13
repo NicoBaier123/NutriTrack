@@ -1,0 +1,97 @@
+==========================================================================================
+                                  RAG Evaluation Script
+==========================================================================================
+Loading evaluation dataset from C:\Users\usewr\dbwdi\backend\tests\data\rag_eval.json...
+Loaded 6 test cases.
+Connecting to database...
+Found 23 recipes in database.
+
+Running evaluation...
+  [1/6] Processing test_001... [OK] (HR=66.67%, P@3=33.33%, 2.254s)
+  [2/6] Processing test_002... [OK] (HR=50.00%, P@3=33.33%, 2.205s)
+  [3/6] Processing test_003... [OK] (HR=66.67%, P@3=66.67%, 2.250s)
+  [4/6] Processing test_004... [OK] (HR=0.00%, P@3=0.00%, 2.277s)
+  [5/6] Processing test_005... [OK] (HR=0.00%, P@3=0.00%, 2.215s)
+  [6/6] Processing test_006... [OK] (HR=50.00%, P@3=33.33%, 2.217s)
+
+==========================================================================================
+                                  RAG EVALUATION SUMMARY
+==========================================================================================
+Test ID      | Hit Rate   | P@3      | Nutr. Comp.  | Macro Comp.  | Latency (s)  | Embed?
+------------------------------------------------------------------------------------------
+test_001     | 66.67%     | 33.33%   | 100.00%      | 100.00%      | 2.254        | Yes
+test_002     | 50.00%     | 33.33%   | 0.00%        | 100.00%      | 2.205        | Yes
+test_003     | 66.67%     | 66.67%   | 100.00%      | 100.00%      | 2.250        | Yes
+test_004     | 0.00%      | 0.00%    | 100.00%      | 100.00%      | 2.277        | Yes
+test_005     | 0.00%      | 0.00%    | 100.00%      | 100.00%      | 2.215        | Yes
+test_006     | 50.00%     | 33.33%   | 100.00%      | 100.00%      | 2.217        | Yes
+------------------------------------------------------------------------------------------
+AVERAGE      | 38.89%     | 27.78%   | 83.33%       | 100.00%      | 2.236        | 6/6
+==========================================================================================
+
+=== Aggregate KPIs ===
+Average Hit Rate:        38.89%
+Average Precision@3:     27.78%
+Average Nutrition Compliance: 83.33%
+Average Macro Compliance: 100.00%
+Average Response Latency: 2.236 seconds
+Embeddings Used:         6/6 tests
+Total Test Cases:        6
+
+=== Per-Test-Case Details ===
+
+test_001:
+  Retrieved: 5 recipes
+  Expected:  3 recipes
+  Hit Rate:  66.67%
+  Precision@3: 33.33%
+  Latency:   2.254s
+  Retrieved Titles: Tropical Green Revive Bowl, Minted Melon Silk Bowl, Golden Berry Glow Bowl...
+  Expected Titles:  Sunrise Citrus Glow Bowl, Tropical Green Revive Bowl, Radiant Roots Bowl
+
+test_002:
+  Retrieved: 5 recipes
+  Expected:  2 recipes
+  Hit Rate:  50.00%
+  Precision@3: 33.33%
+  Latency:   2.205s
+  Retrieved Titles: Forest Berry Crunch Bowl, Guava Pine Oat Bowl, Peach Basil Bliss Bowl...
+  Expected Titles:  Forest Berry Crunch Bowl, Sacha Super Seed Bowl
+
+test_003:
+  Retrieved: 5 recipes
+  Expected:  3 recipes
+  Hit Rate:  66.67%
+  Precision@3: 66.67%
+  Latency:   2.250s
+  Retrieved Titles: Tropical Sunset Pitaya Bowl, Tropical Green Revive Bowl, Jackfruit Paradise Bowl...
+  Expected Titles:  Tropical Sunset Pitaya Bowl, Tropical Green Revive Bowl, Sunrise Citrus Glow Bowl
+
+test_004:
+  Retrieved: 5 recipes
+  Expected:  1 recipes
+  Hit Rate:  0.00%
+  Precision@3: 0.00%
+  Latency:   2.277s
+  Retrieved Titles: Tropical Green Revive Bowl, Radiant Roots Bowl, Minted Melon Silk Bowl...
+  Expected Titles:  Forest Berry Crunch Bowl
+
+test_005:
+  Retrieved: 5 recipes
+  Expected:  2 recipes
+  Hit Rate:  0.00%
+  Precision@3: 0.00%
+  Latency:   2.215s
+  Retrieved Titles: Tropical Green Revive Bowl, Autumn Harvest Bowl, Acai Boost Bowl...
+  Expected Titles:  Mango Lucuma Crunch Bowl, Sacha Super Seed Bowl
+
+test_006:
+  Retrieved: 5 recipes
+  Expected:  2 recipes
+  Hit Rate:  50.00%
+  Precision@3: 33.33%
+  Latency:   2.217s
+  Retrieved Titles: Jackfruit Paradise Bowl, Sacha Super Seed Bowl, Autumn Harvest Bowl...
+  Expected Titles:  Forest Berry Crunch Bowl, Sacha Super Seed Bowl
+
+[SUCCESS] Evaluation completed successfully.

@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: dbwdi-backend
+Version: 0.1.0
+Summary: Backend services and scripts for the dbwdi project.
+Requires-Python: >=3.10
+Requires-Dist: fastapi
+Requires-Dist: uvicorn[standard]
+Requires-Dist: sqlmodel
+Requires-Dist: SQLAlchemy
+Requires-Dist: pydantic==2.12.0
+Requires-Dist: requests
+Requires-Dist: rapidfuzz
+Requires-Dist: python-dotenv
+Requires-Dist: pydantic-settings<3,>=2.3
+Requires-Dist: python-multipart<0.1,>=0.0.9
+Requires-Dist: faster-whisper>=1.0.0
+Requires-Dist: sentence-transformers>=2.3.0
